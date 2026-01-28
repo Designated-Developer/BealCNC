@@ -3,174 +3,236 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>DXF → DAT + Simulation (Generic CNC / Inches)</title>
+  <title>NorrisCAM</title>
   <style>
-    :root { --bg:#0b0c10; --panel:#12141a; --text:#e9eef6; --muted:#9aa4b2; --line:#2a2f3a; }
-    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); }
-    header { padding:14px 16px; border-bottom:1px solid var(--line); background:rgba(18,20,26,0.8); position:sticky; top:0; backdrop-filter: blur(10px); z-index:10; }
-    header h1 { margin:0; font-size:16px; font-weight:650; }
-    header p { margin:6px 0 0; font-size:12px; color:var(--muted); line-height:1.35; }
-
-    .wrap { display:grid; grid-template-columns: 440px 1fr; gap:14px; padding:14px; }
-    .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px; }
-    .card h2 { margin:0 0 10px; font-size:13px; color:var(--muted); font-weight:650; }
-    label { display:block; font-size:12px; color:var(--muted); margin:10px 0 6px; }
-    input, select, button { font:inherit; }
-    input[type="number"], input[type="text"], select {
-      width:100%; padding:10px; border-radius:12px; border:1px solid var(--line);
-      background:#0f1117; color:var(--text);
+    :root{
+      --bg:#07080c;
+      --panel:#0f121a;
+      --panel2:#0b0d13;
+      --line:#232a39;
+      --text:#e8eefc;
+      --muted:#a7b2c6;
+      --accent:#7dd3fc;
+      --cut:#ff7a7a;
+      --rapid:#7aa7ff;
     }
-    input[type="file"] { width:100%; }
-    .row { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
-    .btnrow { display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
-    button {
-      padding:10px 12px; border-radius:12px; border:1px solid var(--line);
-      background:#0f1117; color:var(--text); cursor:pointer;
+    *{box-sizing:border-box;}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text);}
+    header{
+      position:sticky;top:0;z-index:10;
+      display:flex;align-items:center;justify-content:space-between;gap:12px;
+      padding:12px 14px;border-bottom:1px solid var(--line);
+      background:rgba(15,18,26,0.88);backdrop-filter: blur(10px);
     }
-    button:disabled { opacity:0.45; cursor:not-allowed; }
-
-    .viewer { position:relative; min-height: 520px; }
-    canvas { width:100%; height: calc(100vh - 120px); min-height:520px; display:block; border-radius:14px; background:#07080b; border:1px solid var(--line); }
-    .hud {
-      position:absolute; left:12px; top:12px; right:12px;
-      display:flex; justify-content:space-between; gap:10px; pointer-events:none;
-      font-size:12px; color:var(--muted);
+    .brand{display:flex;align-items:center;gap:10px;}
+    .brand h1{margin:0;font-size:16px;font-weight:800;letter-spacing:0.2px;}
+    .brand .tag{margin:0;font-size:12px;color:var(--muted);}
+    .logoWrap{display:flex;align-items:center;gap:10px;}
+    .logo{
+      width:36px;height:36px;border-radius:12px;
+      background:linear-gradient(135deg,#0ea5e9, #a78bfa);
+      border:1px solid rgba(255,255,255,0.15);
+      display:grid;place-items:center;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      overflow:hidden;
     }
-    .hud .pill { background:rgba(18,20,26,0.7); border:1px solid var(--line); border-radius:999px; padding:6px 10px; }
-    .slider { display:flex; align-items:center; gap:10px; margin-top:12px; }
-    input[type="range"] { width:100%; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
-    .tiny { font-size:11px; color:var(--muted); line-height:1.35; margin-top:8px; }
-    .warn { color:#ffcc00; }
-    .pillcheck { display:flex; gap:10px; align-items:center; margin-top:10px; padding:10px; border:1px solid var(--line); border-radius:12px; background:#0f1117; }
-    .pillcheck input { transform: scale(1.1); }
+    .wrap{display:grid;grid-template-columns: 440px 1fr;gap:14px;padding:14px;}
+    .card{
+      background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+    }
+    .card h2{margin:0 0 10px;font-size:12px;color:var(--muted);font-weight:800;letter-spacing:0.7px;text-transform:uppercase;}
+    label{display:block;font-size:12px;color:var(--muted);margin:10px 0 6px;}
+    input,select,button{font:inherit;}
+    input[type="file"]{width:100%;}
+    input[type="number"], input[type="text"], select{
+      width:100%;padding:10px;border-radius:12px;border:1px solid var(--line);
+      background:var(--panel2);color:var(--text);
+    }
+    .row{display:grid;grid-template-columns: 1fr 1fr;gap:10px;}
+    .pill{
+      display:flex;align-items:flex-start;gap:10px;
+      padding:10px;border:1px solid var(--line);border-radius:14px;background:var(--panel2);
+      margin-top:10px;
+    }
+    .pill input{transform:scale(1.1);margin-top:2px;}
+    .pill .title{font-size:12px;font-weight:800;color:var(--text);margin:0;}
+    .pill .sub{font-size:11px;color:var(--muted);margin:4px 0 0;line-height:1.35;}
+    .btnrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;}
+    button{
+      padding:10px 12px;border-radius:12px;border:1px solid var(--line);
+      background:var(--panel2);color:var(--text);cursor:pointer;
+    }
+    button.primary{border-color:rgba(125,211,252,0.4);box-shadow:0 0 0 3px rgba(125,211,252,0.12) inset;}
+    button:disabled{opacity:0.45;cursor:not-allowed;}
+    .slider{display:flex;align-items:center;gap:10px;margin-top:12px;}
+    input[type="range"]{width:100%;}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;}
+    .viewer{position:relative;}
+    canvas{
+      width:100%;height:calc(100vh - 120px);min-height:520px;
+      background:#05060a;border:1px solid var(--line);border-radius:16px;display:block;
+    }
+    .hud{
+      position:absolute;left:12px;top:12px;right:12px;
+      display:flex;justify-content:space-between;gap:10px;pointer-events:none;
+      font-size:12px;color:var(--muted);
+    }
+    .hud .chip{
+      background:rgba(15,18,26,0.75);border:1px solid var(--line);
+      border-radius:999px;padding:6px 10px;
+    }
+    .tiny{font-size:11px;color:var(--muted);line-height:1.35;margin-top:8px;}
+    .warn{color:#ffcc00;}
   </style>
 </head>
 <body>
-  <header>
-    <h1>DXF → DAT + Simulation (Generic CNC / Inches)</h1>
-    <p>
-      Exports <span class="mono">output.dat</span> with <span class="mono">G20</span>. Centers part at X0 Y0. One plunge per path (not per segment).
-      Use <b>Traced Art Mode</b> for traced logos (±0.10").
-    </p>
-  </header>
-
-  <div class="wrap">
-    <div class="card">
-      <h2>Inputs</h2>
-
-      <label>DXF file</label>
-      <input type="file" id="file" accept=".dxf" />
-
-      <div class="pillcheck">
-        <input type="checkbox" id="centerXY" checked />
-        <div>
-          <div style="font-size:12px; color:var(--text); font-weight:650;">Center part at X0 Y0</div>
-          <div class="tiny">Origin will be the middle of the geometry bounds.</div>
-        </div>
-      </div>
-
-      <div class="pillcheck">
-        <input type="checkbox" id="tracedMode" />
-        <div>
-          <div style="font-size:12px; color:var(--text); font-weight:650;">Traced Art Mode (±0.10")</div>
-          <div class="tiny">Snaps + rebuilds paths + merges collinear lines to stop “plunge/retract spam”.</div>
-        </div>
-      </div>
-
-      <div class="pillcheck">
-        <input type="checkbox" id="hideRapids" />
-        <div>
-          <div style="font-size:12px; color:var(--text); font-weight:650;">Hide rapids (display only)</div>
-          <div class="tiny">Only affects the simulation view.</div>
-        </div>
-      </div>
-
-      <div class="row">
-        <div>
-          <label>Safe Z (in)</label>
-          <input type="number" id="safeZ" value="0.50" step="0.01" />
-        </div>
-        <div>
-          <label>Cut Z (in) <span class="warn">(auto-forced negative)</span></label>
-          <input type="number" id="cutZ" value="0.0625" step="0.001" />
-        </div>
-      </div>
-
-      <div class="row">
-        <div>
-          <label>Feed XY (in/min)</label>
-          <input type="number" id="feedXY" value="30" step="1" />
-        </div>
-        <div>
-          <label>Feed Z (in/min)</label>
-          <input type="number" id="feedZ" value="20" step="1" />
-        </div>
-      </div>
-
-      <div class="row">
-        <div>
-          <label>Chain tolerance (in)</label>
-          <input type="number" id="chainTol" value="0.003" step="0.001" />
-        </div>
-        <div>
-          <label>Output precision (in)</label>
-          <select id="outPrec">
-            <option value="0.0001">0.0001</option>
-            <option value="0.001" selected>0.001</option>
-            <option value="0.005">0.005</option>
-            <option value="0.01">0.01</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="row">
-        <div>
-          <label>Traced snap grid (in)</label>
-          <input type="number" id="snapGrid" value="0.02" step="0.01" />
-        </div>
-        <div>
-          <label>Traced angle tolerance (deg)</label>
-          <input type="number" id="angleTolDeg" value="12" step="1" />
-        </div>
-      </div>
-
-      <label>Tool comment</label>
-      <input type="text" id="toolComment" value="(T1 - 1/4 endmill, centerline, no comp)" />
-
-      <div class="btnrow">
-        <button id="build">Build toolpath</button>
-        <button id="download" disabled>Download output.dat</button>
-        <button id="fit" disabled>Fit View</button>
-      </div>
-
-      <div class="slider">
-        <button id="play" disabled>Play</button>
-        <button id="pause" disabled>Pause</button>
-        <input type="range" id="scrub" min="0" max="1" step="0.001" value="0" disabled />
-      </div>
-
-      <p class="mono" id="status" style="margin:10px 0 0; color:var(--muted);">Status: idle</p>
-      <p class="mono" id="stats" style="margin:6px 0 0; color:var(--muted);">Paths: — | Segments: — | DAT lines: —</p>
-
-      <div class="tiny">
-        If your DXF is traced art, turn on <b>Traced Art Mode</b>. That’s the whole fix.
-      </div>
+<header>
+  <div class="logoWrap">
+    <div class="logo" aria-label="NorrisCAM logo">
+      <!-- Inline SVG logo -->
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M6 19V7c0-.6.4-1 1-1h2.2c.4 0 .7.2.9.5l6.2 9.5V7c0-.6.4-1 1-1H20c.6 0 1 .4 1 1v12c0 .6-.4 1-1 1h-2.1c-.4 0-.7-.2-.9-.5L10.8 10V19c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1Z" fill="rgba(255,255,255,0.92)"/>
+        <path d="M3 22h20" stroke="rgba(255,255,255,0.45)" stroke-width="2" stroke-linecap="round"/>
+      </svg>
     </div>
-
-    <div class="viewer card">
-      <h2>Simulation</h2>
-      <div style="position:relative;">
-        <canvas id="c"></canvas>
-        <div class="hud">
-          <div class="pill mono" id="hudPos">XY: —</div>
-          <div class="pill mono" id="hudMode">Mode: —</div>
-        </div>
+    <div class="brand">
+      <div>
+        <h1>NorrisCAM</h1>
+        <p class="tag">DXF → DAT • instant preview • student-friendly</p>
       </div>
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
-  <script src="./app.js"></script>
+  <div class="mono" id="topStatus">Idle</div>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <h2>Import</h2>
+    <label>Choose DXF (shows instantly)</label>
+    <input type="file" id="file" accept=".dxf" />
+
+    <div class="pill">
+      <input type="checkbox" id="centerXY" checked />
+      <div>
+        <div class="title">Center part at X0 Y0</div>
+        <div class="sub">Puts the geometry center at machine origin for consistent setup.</div>
+      </div>
+    </div>
+
+    <div class="pill">
+      <input type="checkbox" id="tracedMode" />
+      <div>
+        <div class="title">Traced Art Mode (±0.10")</div>
+        <div class="sub">For traced logos: snaps + rebuilds paths so the code doesn’t plunge/retract every 0.002".</div>
+      </div>
+    </div>
+
+    <div class="pill">
+      <input type="checkbox" id="hideRapids" />
+      <div>
+        <div class="title">Hide rapids (display only)</div>
+        <div class="sub">Rapids still output in the DAT. This only changes the simulation view.</div>
+      </div>
+    </div>
+
+    <h2 style="margin-top:16px;">Cut settings</h2>
+
+    <div class="row">
+      <div>
+        <label>Safe Z (in)</label>
+        <input type="number" id="safeZ" value="0.50" step="0.01" />
+      </div>
+      <div>
+        <label>Total Depth (in) <span class="warn">(auto negative)</span></label>
+        <input type="number" id="cutZ" value="0.0625" step="0.001" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Stepdown (in)</label>
+        <input type="number" id="stepDown" value="0.0625" step="0.001" />
+      </div>
+      <div>
+        <label>Lead-in (in)</label>
+        <input type="number" id="leadIn" value="0.00" step="0.01" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Feed XY (in/min)</label>
+        <input type="number" id="feedXY" value="30" step="1" />
+      </div>
+      <div>
+        <label>Feed Z (in/min)</label>
+        <input type="number" id="feedZ" value="20" step="1" />
+      </div>
+    </div>
+
+    <h2 style="margin-top:16px;">Geometry + output</h2>
+
+    <div class="row">
+      <div>
+        <label>Chain tolerance (in)</label>
+        <input type="number" id="chainTol" value="0.003" step="0.001" />
+      </div>
+      <div>
+        <label>Output precision (in)</label>
+        <select id="outPrec">
+          <option value="0.0001">0.0001</option>
+          <option value="0.001" selected>0.001</option>
+          <option value="0.005">0.005</option>
+          <option value="0.01">0.01</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Traced snap grid (in)</label>
+        <input type="number" id="snapGrid" value="0.02" step="0.01" />
+      </div>
+      <div>
+        <label>Traced angle tol (deg)</label>
+        <input type="number" id="angleTolDeg" value="12" step="1" />
+      </div>
+    </div>
+
+    <label>Tool comment</label>
+    <input type="text" id="toolComment" value="(T1 - 1/4 endmill, centerline, no comp)" />
+
+    <div class="btnrow">
+      <button id="build" class="primary" disabled>Build Toolpath + DAT</button>
+      <button id="download" disabled>Download output.dat</button>
+      <button id="fit" disabled>Fit View</button>
+    </div>
+
+    <div class="slider">
+      <button id="play" disabled>Play</button>
+      <button id="pause" disabled>Pause</button>
+      <input type="range" id="scrub" min="0" max="1" step="0.001" value="0" disabled />
+    </div>
+
+    <div class="mono" id="stats" style="margin-top:10px;color:var(--muted);">No file loaded.</div>
+    <div class="tiny">
+      Import shows instantly. Then hit <b>Build</b> for toolpaths + DAT.
+    </div>
+  </div>
+
+  <div class="card viewer">
+    <h2>Preview + Simulation</h2>
+    <canvas id="c"></canvas>
+    <div class="hud">
+      <div class="chip mono" id="hudPos">XY: —</div>
+      <div class="chip mono" id="hudMode">Mode: —</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
+<script src="./app.js"></script>
 </body>
 </html>
