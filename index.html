@@ -6,233 +6,320 @@
   <title>NorrisCAM</title>
   <style>
     :root{
-      --bg:#07080c;
-      --panel:#0f121a;
-      --panel2:#0b0d13;
-      --line:#232a39;
-      --text:#e8eefc;
-      --muted:#a7b2c6;
+      --bg:#0b1220;
+      --panel:#0f1b2e;
+      --panel2:#101f36;
+      --ink:#e8eefc;
+      --muted:#9bb0d4;
       --accent:#7dd3fc;
-      --cut:#ff7a7a;
-      --rapid:#7aa7ff;
+      --danger:#ff7a7a;
+      --ok:#67e8a5;
+      --stroke:rgba(255,255,255,.08);
     }
-    *{box-sizing:border-box;}
-    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text);}
-    header{
-      position:sticky;top:0;z-index:10;
-      display:flex;align-items:center;justify-content:space-between;gap:12px;
-      padding:12px 14px;border-bottom:1px solid var(--line);
-      background:rgba(15,18,26,0.88);backdrop-filter: blur(10px);
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      background: radial-gradient(1200px 600px at 20% 0%, #132b4f 0%, var(--bg) 55%) fixed;
+      color:var(--ink);
     }
-    .brand{display:flex;align-items:center;gap:10px;}
-    .brand h1{margin:0;font-size:16px;font-weight:800;letter-spacing:0.2px;}
-    .brand .tag{margin:0;font-size:12px;color:var(--muted);}
-    .logoWrap{display:flex;align-items:center;gap:10px;}
-    .logo{
-      width:36px;height:36px;border-radius:12px;
-      background:linear-gradient(135deg,#0ea5e9, #a78bfa);
-      border:1px solid rgba(255,255,255,0.15);
-      display:grid;place-items:center;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    .wrap{
+      display:grid;
+      grid-template-columns: 360px 1fr;
+      gap:14px;
+      padding:14px;
+      min-height:100vh;
+    }
+    .card{
+      background: linear-gradient(180deg, var(--panel) 0%, rgba(15,27,46,.75) 100%);
+      border:1px solid var(--stroke);
+      border-radius:16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
       overflow:hidden;
     }
-    .wrap{display:grid;grid-template-columns: 440px 1fr;gap:14px;padding:14px;}
-    .card{
-      background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px;
-      box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+    .left{
+      padding:14px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
     }
-    .card h2{margin:0 0 10px;font-size:12px;color:var(--muted);font-weight:800;letter-spacing:0.7px;text-transform:uppercase;}
-    label{display:block;font-size:12px;color:var(--muted);margin:10px 0 6px;}
-    input,select,button{font:inherit;}
-    input[type="file"]{width:100%;}
-    input[type="number"], input[type="text"], select{
-      width:100%;padding:10px;border-radius:12px;border:1px solid var(--line);
-      background:var(--panel2);color:var(--text);
+    .brand{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:10px 12px;
+      background: linear-gradient(180deg, rgba(125,211,252,.12), rgba(125,211,252,.06));
+      border:1px solid rgba(125,211,252,.18);
+      border-radius:14px;
     }
-    .row{display:grid;grid-template-columns: 1fr 1fr;gap:10px;}
-    .pill{
-      display:flex;align-items:flex-start;gap:10px;
-      padding:10px;border:1px solid var(--line);border-radius:14px;background:var(--panel2);
-      margin-top:10px;
+    .logo{
+      width:38px;height:38px;
+      border-radius:12px;
+      background: radial-gradient(circle at 30% 30%, rgba(125,211,252,.9), rgba(125,211,252,.25));
+      display:grid; place-items:center;
+      border:1px solid rgba(125,211,252,.25);
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
     }
-    .pill input{transform:scale(1.1);margin-top:2px;}
-    .pill .title{font-size:12px;font-weight:800;color:var(--text);margin:0;}
-    .pill .sub{font-size:11px;color:var(--muted);margin:4px 0 0;line-height:1.35;}
-    .btnrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;}
-    button{
-      padding:10px 12px;border-radius:12px;border:1px solid var(--line);
-      background:var(--panel2);color:var(--text);cursor:pointer;
+    .brand h1{
+      font-size:18px; margin:0; letter-spacing:.4px;
     }
-    button.primary{border-color:rgba(125,211,252,0.4);box-shadow:0 0 0 3px rgba(125,211,252,0.12) inset;}
-    button:disabled{opacity:0.45;cursor:not-allowed;}
-    .slider{display:flex;align-items:center;gap:10px;margin-top:12px;}
-    input[type="range"]{width:100%;}
-    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;}
-    .viewer{position:relative;}
+    .brand .sub{
+      color:var(--muted); font-size:12px; margin-top:2px;
+    }
+
+    .row{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+    label{color:var(--muted); font-size:12px;}
+    input[type="number"], select{
+      width:100%;
+      padding:10px 10px;
+      border-radius:12px;
+      border:1px solid var(--stroke);
+      background: var(--panel2);
+      color:var(--ink);
+      outline:none;
+    }
+    input[type="checkbox"]{ transform: scale(1.05); }
+
+    .btn{
+      appearance:none;
+      border:none;
+      border-radius:12px;
+      padding:10px 12px;
+      font-weight:700;
+      cursor:pointer;
+      color:#0b1220;
+      background: var(--accent);
+      box-shadow: 0 8px 18px rgba(125,211,252,.18);
+    }
+    .btn:disabled{opacity:.45; cursor:not-allowed}
+    .btn.secondary{
+      background: rgba(255,255,255,.10);
+      color: var(--ink);
+      border:1px solid var(--stroke);
+      box-shadow:none;
+    }
+    .btn.danger{
+      background: var(--danger);
+      box-shadow: 0 8px 18px rgba(255,122,122,.15);
+    }
+
+    .mini{
+      font-size:12px;
+      color:var(--muted);
+      line-height:1.35;
+    }
+    .stat{
+      padding:10px 12px;
+      border:1px solid var(--stroke);
+      border-radius:12px;
+      background: rgba(16,31,54,.55);
+      color:var(--muted);
+      font-size:12px;
+    }
+    .hr{height:1px; background: var(--stroke); margin:4px 0;}
+
+    .right{
+      position:relative;
+      min-height: 520px;
+    }
+    .topbar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:12px 14px;
+      border-bottom:1px solid var(--stroke);
+      background: rgba(16,31,54,.35);
+    }
+    .topbar .status{
+      color:var(--muted);
+      font-size:12px;
+    }
+    .topbar .hud{
+      display:flex; gap:14px; align-items:center;
+      color:var(--muted);
+      font-size:12px;
+    }
+    .canvasWrap{
+      height: calc(100vh - 14px*2 - 52px);
+      min-height: 520px;
+    }
     canvas{
-      width:100%;height:calc(100vh - 120px);min-height:520px;
-      background:#05060a;border:1px solid var(--line);border-radius:16px;display:block;
+      width:100%;
+      height:100%;
+      display:block;
+      background: radial-gradient(900px 500px at 40% 20%, rgba(125,211,252,.06) 0%, rgba(0,0,0,0) 55%);
     }
-    .hud{
-      position:absolute;left:12px;top:12px;right:12px;
-      display:flex;justify-content:space-between;gap:10px;pointer-events:none;
-      font-size:12px;color:var(--muted);
+    .scrub{
+      width:180px;
     }
-    .hud .chip{
-      background:rgba(15,18,26,0.75);border:1px solid var(--line);
-      border-radius:999px;padding:6px 10px;
+    .file{
+      width:100%;
+      padding:10px;
+      border-radius:12px;
+      border:1px dashed rgba(125,211,252,.25);
+      background: rgba(125,211,252,.06);
+      color:var(--muted);
     }
-    .tiny{font-size:11px;color:var(--muted);line-height:1.35;margin-top:8px;}
-    .warn{color:#ffcc00;}
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap:10px;
+    }
+    .small{
+      font-size:11px;
+      color:var(--muted);
+    }
+    @media (max-width: 980px){
+      .wrap{grid-template-columns: 1fr; }
+      .canvasWrap{height: 62vh;}
+    }
   </style>
 </head>
 <body>
-<header>
-  <div class="logoWrap">
-    <div class="logo" aria-label="NorrisCAM logo">
-      <!-- Inline SVG logo -->
-      <svg width="26" height="26" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M6 19V7c0-.6.4-1 1-1h2.2c.4 0 .7.2.9.5l6.2 9.5V7c0-.6.4-1 1-1H20c.6 0 1 .4 1 1v12c0 .6-.4 1-1 1h-2.1c-.4 0-.7-.2-.9-.5L10.8 10V19c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1Z" fill="rgba(255,255,255,0.92)"/>
-        <path d="M3 22h20" stroke="rgba(255,255,255,0.45)" stroke-width="2" stroke-linecap="round"/>
-      </svg>
+  <div class="wrap">
+    <div class="card left">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <!-- NorrisCAM mark -->
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <path d="M7 18V6h6.4c2.5 0 4.1 1.4 4.1 3.4 0 1.6-1 2.7-2.4 3.1 1.8.3 3 1.6 3 3.4 0 2.3-1.8 4-4.7 4H7Z" stroke="rgba(11,18,32,.95)" stroke-width="2" stroke-linecap="round"/>
+            <path d="M9.2 8.1h3.9c1 0 1.7.6 1.7 1.5s-.7 1.5-1.7 1.5H9.2V8.1Z" fill="rgba(11,18,32,.95)"/>
+            <path d="M9.2 12.9h4.3c1.2 0 2 .7 2 1.7 0 1.1-.8 1.8-2 1.8H9.2v-3.5Z" fill="rgba(11,18,32,.95)"/>
+          </svg>
+        </div>
+        <div>
+          <h1>NorrisCAM</h1>
+          <div class="sub">DXF → Toolpath → .DAT (i-Carver ready)</div>
+        </div>
+      </div>
+
+      <input id="file" class="file" type="file" accept=".dxf" />
+
+      <div class="stat">
+        <div><b>Status:</b> <span id="topStatus">Idle</span></div>
+        <div style="margin-top:6px" id="stats">Import a DXF to preview instantly.</div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="grid2">
+        <div>
+          <label>Units</label>
+          <select id="units">
+            <option value="inch" selected>Inches (G20)</option>
+          </select>
+          <div class="small">i-Picture supports inch/mm, but this tool outputs inch. :contentReference[oaicite:5]{index=5}</div>
+        </div>
+        <div>
+          <label>XY Origin (match i-Picture)</label>
+          <select id="origin">
+            <option value="center" selected>Center</option>
+            <option value="ul">Upper-Left</option>
+            <option value="ur">Upper-Right</option>
+            <option value="ll">Lower-Left</option>
+            <option value="lr">Lower-Right</option>
+          </select>
+          <div class="small">Origin must match i-Picture origin selection. :contentReference[oaicite:6]{index=6}</div>
+        </div>
+      </div>
+
+      <div class="grid3">
+        <div>
+          <label>Safe Z (in)</label>
+          <input id="safeZ" type="number" step="0.01" value="0.50">
+        </div>
+        <div>
+          <label>Cut Depth (in)</label>
+          <input id="cutZ" type="number" step="0.001" value="0.0625">
+        </div>
+        <div>
+          <label>Stepdown (in)</label>
+          <input id="stepDown" type="number" step="0.001" value="0.0625">
+        </div>
+      </div>
+
+      <div class="grid3">
+        <div>
+          <label>Feed XY (ipm)</label>
+          <input id="feedXY" type="number" step="1" value="30">
+        </div>
+        <div>
+          <label>Feed Z (ipm)</label>
+          <input id="feedZ" type="number" step="1" value="20">
+        </div>
+        <div>
+          <label>Output Precision (in)</label>
+          <input id="outPrec" type="number" step="0.001" value="0.01">
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <label><input id="tracedMode" type="checkbox" checked> Traced Art Mode (recommended)</label>
+          <div class="small">For traced logos: snaps + simplifies for ±0.10" work.</div>
+        </div>
+        <div>
+          <label><input id="hideRapids" type="checkbox"> Hide rapids in sim</label>
+        </div>
+      </div>
+
+      <div class="grid3">
+        <div>
+          <label>Snap Grid (in)</label>
+          <input id="snapGrid" type="number" step="0.001" value="0.02">
+        </div>
+        <div>
+          <label>Angle Tolerance (deg)</label>
+          <input id="angleTolDeg" type="number" step="1" value="12">
+        </div>
+        <div>
+          <label>Chain Tol (in)</label>
+          <input id="chainTol" type="number" step="0.001" value="0.02">
+        </div>
+      </div>
+
+      <label>Header Comment</label>
+      <input id="toolComment" type="text" value="(T1 - 1/4 endmill, centerline, no comp)" />
+
+      <div class="row">
+        <!-- IMPORTANT: We include BOTH ids so your existing JS or this JS will bind -->
+        <button id="buildToolpath" class="btn">Build Toolpath + DAT</button>
+        <button id="download" class="btn secondary" disabled>Download .dat</button>
+        <button id="fit" class="btn secondary" disabled>Fit View</button>
+      </div>
+
+      <div class="row">
+        <button id="play" class="btn secondary" disabled>Play</button>
+        <button id="pause" class="btn secondary" disabled>Pause</button>
+        <input id="scrub" class="scrub" type="range" min="0" max="1" step="0.001" value="0" disabled />
+      </div>
+
+      <div class="mini">
+        This outputs a **simple G-code .dat** intended to be imported into **i-Picture** (which accepts .dat/.nc/.txt and converts to GEE). :contentReference[oaicite:7]{index=7}
+      </div>
     </div>
-    <div class="brand">
-      <div>
-        <h1>NorrisCAM</h1>
-        <p class="tag">DXF → DAT • instant preview • student-friendly</p>
+
+    <div class="card right">
+      <div class="topbar">
+        <div class="status">Preview + Simulation</div>
+        <div class="hud">
+          <span id="hudMode">Mode: Preview</span>
+          <span id="hudPos">XY: —</span>
+        </div>
+      </div>
+      <div class="canvasWrap">
+        <canvas id="c"></canvas>
       </div>
     </div>
   </div>
 
-  <div class="mono" id="topStatus">Idle</div>
-</header>
-
-<div class="wrap">
-  <div class="card">
-    <h2>Import</h2>
-    <label>Choose DXF (shows instantly)</label>
-    <input type="file" id="file" accept=".dxf" />
-
-    <div class="pill">
-      <input type="checkbox" id="centerXY" checked />
-      <div>
-        <div class="title">Center part at X0 Y0</div>
-        <div class="sub">Puts the geometry center at machine origin for consistent setup.</div>
-      </div>
-    </div>
-
-    <div class="pill">
-      <input type="checkbox" id="tracedMode" />
-      <div>
-        <div class="title">Traced Art Mode (±0.10")</div>
-        <div class="sub">For traced logos: snaps + rebuilds paths so the code doesn’t plunge/retract every 0.002".</div>
-      </div>
-    </div>
-
-    <div class="pill">
-      <input type="checkbox" id="hideRapids" />
-      <div>
-        <div class="title">Hide rapids (display only)</div>
-        <div class="sub">Rapids still output in the DAT. This only changes the simulation view.</div>
-      </div>
-    </div>
-
-    <h2 style="margin-top:16px;">Cut settings</h2>
-
-    <div class="row">
-      <div>
-        <label>Safe Z (in)</label>
-        <input type="number" id="safeZ" value="0.50" step="0.01" />
-      </div>
-      <div>
-        <label>Total Depth (in) <span class="warn">(auto negative)</span></label>
-        <input type="number" id="cutZ" value="0.0625" step="0.001" />
-      </div>
-    </div>
-
-    <div class="row">
-      <div>
-        <label>Stepdown (in)</label>
-        <input type="number" id="stepDown" value="0.0625" step="0.001" />
-      </div>
-      <div>
-        <label>Lead-in (in)</label>
-        <input type="number" id="leadIn" value="0.00" step="0.01" />
-      </div>
-    </div>
-
-    <div class="row">
-      <div>
-        <label>Feed XY (in/min)</label>
-        <input type="number" id="feedXY" value="30" step="1" />
-      </div>
-      <div>
-        <label>Feed Z (in/min)</label>
-        <input type="number" id="feedZ" value="20" step="1" />
-      </div>
-    </div>
-
-    <h2 style="margin-top:16px;">Geometry + output</h2>
-
-    <div class="row">
-      <div>
-        <label>Chain tolerance (in)</label>
-        <input type="number" id="chainTol" value="0.003" step="0.001" />
-      </div>
-      <div>
-        <label>Output precision (in)</label>
-        <select id="outPrec">
-          <option value="0.0001">0.0001</option>
-          <option value="0.001" selected>0.001</option>
-          <option value="0.005">0.005</option>
-          <option value="0.01">0.01</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="row">
-      <div>
-        <label>Traced snap grid (in)</label>
-        <input type="number" id="snapGrid" value="0.02" step="0.01" />
-      </div>
-      <div>
-        <label>Traced angle tol (deg)</label>
-        <input type="number" id="angleTolDeg" value="12" step="1" />
-      </div>
-    </div>
-
-    <label>Tool comment</label>
-    <input type="text" id="toolComment" value="(T1 - 1/4 endmill, centerline, no comp)" />
-
-    <div class="btnrow">
-      <button id="build" class="primary" disabled>Build Toolpath + DAT</button>
-      <button id="download" disabled>Download output.dat</button>
-      <button id="fit" disabled>Fit View</button>
-    </div>
-
-    <div class="slider">
-      <button id="play" disabled>Play</button>
-      <button id="pause" disabled>Pause</button>
-      <input type="range" id="scrub" min="0" max="1" step="0.001" value="0" disabled />
-    </div>
-
-    <div class="mono" id="stats" style="margin-top:10px;color:var(--muted);">No file loaded.</div>
-    <div class="tiny">
-      Import shows instantly. Then hit <b>Build</b> for toolpaths + DAT.
-    </div>
-  </div>
-
-  <div class="card viewer">
-    <h2>Preview + Simulation</h2>
-    <canvas id="c"></canvas>
-    <div class="hud">
-      <div class="chip mono" id="hudPos">XY: —</div>
-      <div class="chip mono" id="hudMode">Mode: —</div>
-    </div>
-  </div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
-<script src="./app.js"></script>
+  <!-- DXF parser -->
+  <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
