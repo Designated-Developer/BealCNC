@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>DXF → DAT + Toolpath Sim (Inches)</title>
+  <title>DXF → DAT + Toolpath Sim (Inch / G20)</title>
   <style>
     :root { --bg:#0b0c10; --panel:#12141a; --text:#e9eef6; --muted:#9aa4b2; --line:#2a2f3a; }
     body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); }
-    header { padding:14px 16px; border-bottom:1px solid var(--line); background:rgba(18,20,26,0.85); position:sticky; top:0; backdrop-filter: blur(10px); }
+    header { padding:14px 16px; border-bottom:1px solid var(--line); background:rgba(18,20,26,0.8); position:sticky; top:0; backdrop-filter: blur(10px); z-index:10; }
     header h1 { margin:0; font-size:16px; font-weight:650; }
-    header p { margin:6px 0 0; font-size:12px; color:var(--muted); }
+    header p { margin:6px 0 0; font-size:12px; color:var(--muted); line-height:1.35; }
 
-    .wrap { display:grid; grid-template-columns: 390px 1fr; gap:14px; padding:14px; }
+    .wrap { display:grid; grid-template-columns: 400px 1fr; gap:14px; padding:14px; }
     .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px; }
     .card h2 { margin:0 0 10px; font-size:13px; color:var(--muted); font-weight:650; }
     label { display:block; font-size:12px; color:var(--muted); margin:10px 0 6px; }
@@ -30,7 +30,7 @@
     button:disabled { opacity:0.45; cursor:not-allowed; }
 
     .viewer { position:relative; min-height: 520px; }
-    canvas { width:100%; height: calc(100vh - 130px); min-height:520px; display:block; border-radius:14px; background:#07080b; border:1px solid var(--line); }
+    canvas { width:100%; height: calc(100vh - 120px); min-height:520px; display:block; border-radius:14px; background:#07080b; border:1px solid var(--line); }
     .hud {
       position:absolute; left:12px; top:12px; right:12px;
       display:flex; justify-content:space-between; gap:10px; pointer-events:none;
@@ -40,14 +40,16 @@
     .slider { display:flex; align-items:center; gap:10px; margin-top:12px; }
     input[type="range"] { width:100%; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
-    .note { color: var(--muted); font-size:12px; line-height:1.4; margin:10px 0 0; }
-    .pillwarn { display:inline-block; padding:3px 8px; border-radius:999px; border:1px solid #4a3a1a; background:rgba(255,190,90,0.08); color:#ffcf8a; }
+    .tiny { font-size:11px; color:var(--muted); line-height:1.35; margin-top:8px; }
   </style>
 </head>
 <body>
   <header>
-    <h1>DXF → DAT + Toolpath Simulation (Inches)</h1>
-    <p>Centerline toolpath, 1/4" endmill, no cutter comp. Exports <span class="mono">output.dat</span> in inches (<span class="mono">G20</span>).</p>
+    <h1>DXF → DAT + Toolpath Simulation (Generic CNC / Inches)</h1>
+    <p>
+      Outputs <span class="mono">G20</span> inch G-code and saves as <span class="mono">.dat</span>.
+      Supports LINE / ARC / CIRCLE / (LW)POLYLINE incl. bulge arcs. Origin is centered at part midpoint.
+    </p>
   </header>
 
   <div class="wrap">
@@ -57,35 +59,29 @@
       <label>DXF file</label>
       <input type="file" id="file" accept=".dxf" />
 
-      <label>Units</label>
-      <select id="units">
-        <option value="G20" selected>Inch (G20)</option>
-        <option value="G21">mm (G21)</option>
-      </select>
-
-      <label style="display:flex; gap:10px; align-items:center; margin-top:10px;">
+      <label style="display:flex; gap:10px; align-items:center; margin-top:12px;">
         <input type="checkbox" id="centerXY" checked />
-        Center part at X0 Y0 (always)
+        Center part at X0 Y0 (origin in the middle)
       </label>
 
       <div class="row">
         <div>
-          <label>Safe Z</label>
+          <label>Safe Z (in)</label>
           <input type="number" id="safeZ" value="0.25" step="0.01" />
         </div>
         <div>
-          <label>Cut Z</label>
+          <label>Cut Z (in)</label>
           <input type="number" id="cutZ" value="-0.125" step="0.01" />
         </div>
       </div>
 
       <div class="row">
         <div>
-          <label>Feed XY</label>
+          <label>Feed XY (in/min)</label>
           <input type="number" id="feedXY" value="30" step="1" />
         </div>
         <div>
-          <label>Feed Z</label>
+          <label>Feed Z (in/min)</label>
           <input type="number" id="feedZ" value="20" step="1" />
         </div>
       </div>
@@ -95,7 +91,7 @@
 
       <div class="btnrow">
         <button id="build">Build toolpath</button>
-        <button id="download" disabled>Download .dat</button>
+        <button id="download" disabled>Download output.dat</button>
       </div>
 
       <div class="slider">
@@ -105,13 +101,15 @@
       </div>
 
       <p class="mono" id="status" style="margin:10px 0 0; color:var(--muted);">Status: idle</p>
-      <p class="mono" id="stats" style="margin:6px 0 0; color:var(--muted);">Elements: — | Length: —</p>
-      <p class="mono" id="warn" style="margin:6px 0 0; color:var(--muted);"></p>
+      <p class="mono" id="stats" style="margin:6px 0 0; color:var(--muted);">Primitives: — | Length: —</p>
 
-      <p class="note">
-        <span class="pillwarn">Important</span> If your DXF contains SPLINE/ELLIPSE, this app will warn you (it won’t silently drop it).
-        For CNC reliability, export DXF with splines exploded to polylines/arcs if needed.
-      </p>
+      <div class="tiny">
+        Notes:
+        <ul style="margin:6px 0 0; padding-left:16px;">
+          <li>Arcs output as <span class="mono">G2/G3</span> with <span class="mono">I/J</span> incremental center offsets (common “generic CNC” style).</li>
+          <li>No cutter comp, no offsets, no stock removal.</li>
+        </ul>
+      </div>
     </div>
 
     <div class="viewer card">
