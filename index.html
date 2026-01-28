@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>DXF → DAT + Toolpath Sim (V1)</title>
+  <style>
+    :root { --bg:#0b0c10; --panel:#12141a; --text:#e9eef6; --muted:#9aa4b2; --line:#2a2f3a; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); }
+    header { padding:14px 16px; border-bottom:1px solid var(--line); background:rgba(18,20,26,0.8); position:sticky; top:0; backdrop-filter: blur(10px); }
+    header h1 { margin:0; font-size:16px; font-weight:650; }
+    header p { margin:6px 0 0; font-size:12px; color:var(--muted); }
+
+    .wrap { display:grid; grid-template-columns: 380px 1fr; gap:14px; padding:14px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px; }
+    .card h2 { margin:0 0 10px; font-size:13px; color:var(--muted); font-weight:650; }
+    label { display:block; font-size:12px; color:var(--muted); margin:10px 0 6px; }
+    input, select, button { font:inherit; }
+    input[type="number"], input[type="text"], select {
+      width:100%; padding:10px; border-radius:12px; border:1px solid var(--line);
+      background:#0f1117; color:var(--text);
+    }
+    input[type="file"] { width:100%; }
+    .row { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .btnrow { display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
+    button {
+      padding:10px 12px; border-radius:12px; border:1px solid var(--line);
+      background:#0f1117; color:var(--text); cursor:pointer;
+    }
+    button:disabled { opacity:0.45; cursor:not-allowed; }
+
+    .viewer { position:relative; min-height: 520px; }
+    canvas { width:100%; height: calc(100vh - 120px); min-height:520px; display:block; border-radius:14px; background:#07080b; border:1px solid var(--line); }
+    .hud {
+      position:absolute; left:12px; top:12px; right:12px;
+      display:flex; justify-content:space-between; gap:10px; pointer-events:none;
+      font-size:12px; color:var(--muted);
+    }
+    .hud .pill { background:rgba(18,20,26,0.7); border:1px solid var(--line); border-radius:999px; padding:6px 10px; }
+    .slider { display:flex; align-items:center; gap:10px; margin-top:12px; }
+    input[type="range"] { width:100%; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>DXF → DAT + Toolpath Simulation (V1)</h1>
+    <p>Centerline toolpath, 1/4&quot; endmill, no cutter comp. Sim = toolpath verify only (no stock removal).</p>
+  </header>
+
+  <div class="wrap">
+    <div class="card">
+      <h2>Inputs</h2>
+
+      <label>DXF file</label>
+      <input type="file" id="file" accept=".dxf" />
+
+      <label>Units</label>
+      <select id="units">
+        <option value="G20">Inch (G20)</option>
+        <option value="G21">mm (G21)</option>
+      </select>
+
+      <div class="row">
+        <div>
+          <label>Safe Z</label>
+          <input type="number" id="safeZ" value="0.25" step="0.01" />
+        </div>
+        <div>
+          <label>Cut Z</label>
+          <input type="number" id="cutZ" value="-0.125" step="0.01" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Feed XY</label>
+          <input type="number" id="feedXY" value="30" step="1" />
+        </div>
+        <div>
+          <label>Feed Z</label>
+          <input type="number" id="feedZ" value="20" step="1" />
+        </div>
+      </div>
+
+      <label>Tool comment</label>
+      <input type="text" id="toolComment" value="(T1 - 1/4 endmill, centerline, no comp)" />
+
+      <div class="btnrow">
+        <button id="build">Build toolpath</button>
+        <button id="download" disabled>Download .dat</button>
+      </div>
+
+      <div class="slider">
+        <button id="play" disabled>Play</button>
+        <button id="pause" disabled>Pause</button>
+        <input type="range" id="scrub" min="0" max="1" step="0.001" value="0" disabled />
+      </div>
+
+      <p class="mono" id="status" style="margin:10px 0 0; color:var(--muted);">Status: idle</p>
+      <p class="mono" id="stats" style="margin:6px 0 0; color:var(--muted);">Moves: — | Length: —</p>
+
+      <hr style="border:0;border-top:1px solid var(--line); margin:12px 0;" />
+      <details>
+        <summary style="cursor:pointer; color:var(--muted); font-size:12px;">Limits (read once)</summary>
+        <ul style="margin:8px 0 0; color:var(--muted); font-size:12px; line-height:1.4;">
+          <li>V1 supports LINE + (LW)POLYLINE straight segments. Arcs/bulge are ignored.</li>
+          <li>Each DXF segment is cut individually (more rapids). That’s fine for V1 verify.</li>
+          <li>No offsets, no tabs, no depth stepping.</li>
+        </ul>
+      </details>
+    </div>
+
+    <div class="viewer card">
+      <h2>Simulation</h2>
+      <div style="position:relative;">
+        <canvas id="c"></canvas>
+        <div class="hud">
+          <div class="pill mono" id="hudPos">XYZ: —</div>
+          <div class="pill mono" id="hudMode">Mode: —</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
