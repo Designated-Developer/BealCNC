@@ -1,9 +1,5 @@
 // NorrisCAM - DXF preview (instant) + Toolpath + DAT export
-// Goals:
-// - Choose DXF => show geometry immediately (fit view)
-// - Build better toolpaths: chaining/merge + nearest-path ordering
-// - Traced Art Mode (±0.10"): snap + direction-based rebuild + aggressive merge
-// - Output G20 inches, generic CNC, save as output.dat
+// FIX: Support LWPOLYLINE / POLYLINE / SPLINE fallback so “No supported geometry” doesn’t happen.
 
 const $ = (id) => document.getElementById(id);
 
@@ -70,22 +66,28 @@ function collinear(a,b,c,eps){
 }
 function reverseSeg(s){
   if(s.kind==="line") return { ...s, a:s.b, b:s.a };
-  // arc: reverse start/end and flip direction (for chaining)
   return { ...s, a:s.b, b:s.a, ccw:!s.ccw, a1:s.a2, a2:s.a1 };
 }
 
-// ---------------- DXF extract ----------------
+// ---------------- DXF extract (robust) ----------------
 // Segment types:
 // line: {kind:'line', a:{x,y}, b:{x,y}}
 // arc : {kind:'arc',  a:{x,y}, b:{x,y}, c:{x,y}, r, ccw, a1, a2}
+//
+// Supports: LINE, ARC, CIRCLE, LWPOLYLINE, POLYLINE
+// SPLINE fallback: connect fit/control points as lines (good for ±0.10")
+
 function extractSegments(dxf){
   const out = [];
-  for(const e of (dxf.entities||[])){
-    if(e.type==="LINE"){
+  const ents = dxf.entities || [];
+
+  for(const e of ents){
+    if(e.type === "LINE"){
       out.push({kind:"line", a:{x:e.start.x,y:e.start.y}, b:{x:e.end.x,y:e.end.y}});
       continue;
     }
-    if(e.type==="ARC"){
+
+    if(e.type === "ARC"){
       const cx=e.center.x, cy=e.center.y, r=e.radius;
       const a1=degToRad(e.startAngle), a2=degToRad(e.endAngle);
       const a={x:cx+r*Math.cos(a1), y:cy+r*Math.sin(a1)};
@@ -93,19 +95,85 @@ function extractSegments(dxf){
       out.push({kind:"arc", a,b, c:{x:cx,y:cy}, r, ccw:true, a1,a2});
       continue;
     }
-    if(e.type==="CIRCLE"){
+
+    if(e.type === "CIRCLE"){
       const cx=e.center.x, cy=e.center.y, r=e.radius;
       const a={x:cx+r,y:cy}, m={x:cx-r,y:cy};
       out.push({kind:"arc", a, b:m, c:{x:cx,y:cy}, r, ccw:true});
       out.push({kind:"arc", a:m, b:a, c:{x:cx,y:cy}, r, ccw:true});
       continue;
     }
-    // NOTE: keeping it robust for students: we support LINE/ARC/CIRCLE.
-    // Polylines often come in as LINE anyway; traced art is mostly LINE.
+
+    if(e.type === "LWPOLYLINE" || e.type === "POLYLINE"){
+      const verts = (e.vertices || [])
+        .map(v => ({ x: v.x, y: v.y, bulge: v.bulge || 0 }));
+
+      if(verts.length < 2) continue;
+
+      for(let i=0;i<verts.length-1;i++){
+        const p=verts[i], q=verts[i+1];
+        if(Math.abs(p.bulge) > 1e-12){
+          out.push(bulgeToArcSeg(p, q, p.bulge));
+        }else{
+          out.push({kind:"line", a:{x:p.x,y:p.y}, b:{x:q.x,y:q.y}});
+        }
+      }
+
+      if(e.closed){
+        const p=verts[verts.length-1], q=verts[0];
+        if(Math.abs(p.bulge) > 1e-12) out.push(bulgeToArcSeg(p,q,p.bulge));
+        else out.push({kind:"line", a:{x:p.x,y:p.y}, b:{x:q.x,y:q.y}});
+      }
+      continue;
+    }
+
+    if(e.type === "SPLINE"){
+      // Fallback: connect fitPoints or controlPoints with straight segments.
+      // This is not true spline machining, but it is reliable for traced art / ±0.10".
+      const pts = (e.fitPoints && e.fitPoints.length ? e.fitPoints : e.controlPoints) || [];
+      if(pts.length >= 2){
+        for(let i=0;i<pts.length-1;i++){
+          const p=pts[i], q=pts[i+1];
+          out.push({kind:"line", a:{x:p.x,y:p.y}, b:{x:q.x,y:q.y}});
+        }
+      }
+      continue;
+    }
+
+    // Ignore everything else: TEXT, MTEXT, DIMENSION, HATCH, etc.
   }
+
   return out;
 }
 
+// Bulge arc conversion for polylines
+function bulgeToArcSeg(p, q, bulge) {
+  const x1=p.x,y1=p.y,x2=q.x,y2=q.y;
+  const dx=x2-x1, dy=y2-y1;
+  const chord=Math.hypot(dx,dy);
+  if (chord < 1e-12) return { kind:"line", a:{x:x1,y:y1}, b:{x:x2,y:y2} };
+
+  const theta = 4 * Math.atan(bulge);
+  const ccw = theta > 0;
+  const absTheta = Math.abs(theta);
+
+  const r = chord / (2 * Math.sin(absTheta/2));
+  const mx=(x1+x2)/2, my=(y1+y2)/2;
+  const h = Math.sqrt(Math.max(0, r*r - (chord*chord)/4));
+
+  const ux=dx/chord, uy=dy/chord;
+  const nx=-uy, ny=ux;
+  const sign = ccw ? 1 : -1;
+  const cx = mx + sign*h*nx;
+  const cy = my + sign*h*ny;
+
+  const a1 = Math.atan2(y1-cy, x1-cx);
+  const a2 = Math.atan2(y2-cy, x2-cx);
+
+  return { kind:"arc", a:{x:x1,y:y1}, b:{x:x2,y:y2}, c:{x:cx,y:cy}, r, ccw, a1, a2 };
+}
+
+// ---------------- bounds / shift ----------------
 function boundsOfSegments(segs){
   let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
   for(const s of segs){
@@ -113,6 +181,11 @@ function boundsOfSegments(segs){
     minY=Math.min(minY,s.a.y,s.b.y);
     maxX=Math.max(maxX,s.a.x,s.b.x);
     maxY=Math.max(maxY,s.a.y,s.b.y);
+    if(s.kind==="arc"){
+      // include center loosely (safe for view fit; not exact arc extents, but fine)
+      minX=Math.min(minX,s.c.x); minY=Math.min(minY,s.c.y);
+      maxX=Math.max(maxX,s.c.x); maxY=Math.max(maxY,s.c.y);
+    }
   }
   if(!isFinite(minX)) return {minX:0,minY:0,maxX:1,maxY:1};
   return {minX,minY,maxX,maxY};
@@ -122,7 +195,7 @@ function shiftSeg(s, dx, dy){
   return {...s, a:{x:s.a.x+dx,y:s.a.y+dy}, b:{x:s.b.x+dx,y:s.b.y+dy}, c:{x:s.c.x+dx,y:s.c.y+dy}};
 }
 
-// ---------------- Normal chaining (endpoint-based) ----------------
+// ---------------- chaining (normal) ----------------
 function keyPt(p,tol){
   const qx=Math.round(p.x/tol);
   const qy=Math.round(p.y/tol);
@@ -144,7 +217,6 @@ function chainSegmentsIntoPaths(segs, tol){
 
   function findNext(pt){
     const k=keyPt(pt,tol);
-
     for(const idx of (startMap.get(k)||[])){
       if(used[idx]) continue;
       if(dist(segs[idx].a, pt) <= tol) return {idx, seg: segs[idx]};
@@ -161,7 +233,6 @@ function chainSegmentsIntoPaths(segs, tol){
     used[i]=true;
     const chain=[segs[i]];
 
-    // forward
     let end=chain[chain.length-1].b;
     while(true){
       const nxt=findNext(end);
@@ -171,7 +242,6 @@ function chainSegmentsIntoPaths(segs, tol){
       end=nxt.seg.b;
     }
 
-    // backward
     let start=chain[0].a;
     while(true){
       const nxt=findNext(start);
@@ -186,7 +256,6 @@ function chainSegmentsIntoPaths(segs, tol){
   return paths;
 }
 
-// Merge collinear LINE segments (safe, doesn’t “miss geometry”, just reduces spam)
 function mergeCollinear(pathSegs, tol){
   if(pathSegs.length<2) return pathSegs.slice();
   const out=[];
@@ -215,7 +284,7 @@ function mergeCollinear(pathSegs, tol){
   return out;
 }
 
-// ---------------- Traced art mode: snap + direction rebuild ----------------
+// ---------------- traced mode ----------------
 function rebuildTracedLinesIntoPaths(segs, snapGrid, angleTolDeg){
   const lines = segs
     .filter(s=>s.kind==="line")
@@ -274,10 +343,8 @@ function rebuildTracedLinesIntoPaths(segs, snapGrid, angleTolDeg){
   return paths;
 }
 
-// ---------------- Toolpath ordering: nearest path start ----------------
 function orderPathsNearest(paths){
   if(paths.length<=1) return paths;
-
   const remaining = paths.slice();
   const ordered = [];
 
@@ -294,19 +361,17 @@ function orderPathsNearest(paths){
     }
     cur = remaining.splice(bestIdx,1)[0];
     ordered.push(cur);
-    // next current point should be end of that path
     curPt = cur.segments[cur.segments.length-1].b;
   }
 
   return ordered;
 }
 
-// ---------------- Moves + passes ----------------
+// ---------------- moves + passes ----------------
 function buildMoves(paths, opts){
   const m=[];
   m.push({type:"retract", z:opts.safeZ});
 
-  // depth passes: totalDepth is negative
   const depth = Math.abs(opts.totalDepth);
   const step = opts.stepDown;
   const passCount = Math.max(1, Math.ceil(depth / step));
@@ -324,11 +389,9 @@ function buildMoves(paths, opts){
 
       const start=p.segments[0].a;
 
-      // rapid to start
       if(dist(curXY, start) > 1e-12) m.push({type:"rapidXY", x:start.x, y:start.y});
       curXY = {x:start.x, y:start.y};
 
-      // optional simple lead-in (straight line) if set
       if(opts.leadIn > 0 && p.segments[0].kind==="line"){
         const s0=p.segments[0];
         const dx=s0.b.x - s0.a.x, dy=s0.b.y - s0.a.y;
@@ -341,17 +404,14 @@ function buildMoves(paths, opts){
         }
       }
 
-      // plunge
       m.push({type:"plunge", z:passZ, f:opts.feedZ});
       m.push({type:"feedXY", f:opts.feedXY});
 
-      // cut along path
       for(const s of p.segments){
         if(s.kind==="line"){
           m.push({type:"cutLine", x:s.b.x, y:s.b.y});
           curXY = {x:s.b.x, y:s.b.y};
         } else {
-          // arcs only for normal mode
           const i = s.c.x - s.a.x;
           const j = s.c.y - s.a.y;
           m.push({type:"cutArc", x:s.b.x, y:s.b.y, i, j, ccw:s.ccw});
@@ -359,7 +419,6 @@ function buildMoves(paths, opts){
         }
       }
 
-      // retract
       m.push({type:"retract", z:opts.safeZ});
     }
   }
@@ -458,7 +517,6 @@ function buildPlayback(moves){
       segs.push({kind:"line",mode:"CUT",a,b,len,cum});
       cur=b;
     }else if(m.type==="cutArc"){
-      // for pacing, approximate arc length by chord (good enough for a teaching sim)
       const a={...cur};
       const c={x:a.x+m.i,y:a.y+m.j};
       const b={x:m.x,y:m.y};
@@ -477,7 +535,6 @@ function pointAtT(t){
   const total=playback[playback.length-1].cum || 1;
   const target=t*total;
 
-  // binary search
   let lo=0,hi=playback.length-1;
   while(lo<hi){
     const mid=(lo+hi)>>1;
@@ -495,7 +552,6 @@ function pointAtT(t){
       mode: s.mode
     };
   }else{
-    // display-only rough param
     const a1=Math.atan2(s.a.y-s.c.y,s.a.x-s.c.x);
     const a2=Math.atan2(s.b.y-s.c.y,s.b.x-s.c.x);
     const ang=a1 + (a2-a1)*u;
@@ -566,11 +622,9 @@ function drawGrid(){
 
 function drawPreviewGeometry(){
   if(!previewSegs.length) return;
-
   ctx.save();
   ctx.strokeStyle="rgba(125,211,252,0.9)";
   ctx.lineWidth=2;
-
   for(const s of previewSegs){
     const a=worldToScreen(s.a), b=worldToScreen(s.b);
     ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
@@ -581,7 +635,6 @@ function drawPreviewGeometry(){
 function drawToolpath(opts){
   if(!playback.length) return;
 
-  // rapids
   if(!opts.hideRapids){
     ctx.save();
     ctx.strokeStyle="rgba(122,167,255,0.55)";
@@ -595,7 +648,6 @@ function drawToolpath(opts){
     ctx.restore();
   }
 
-  // cuts
   ctx.save();
   ctx.strokeStyle="rgba(255,122,122,0.9)";
   ctx.lineWidth=2;
@@ -606,11 +658,11 @@ function drawToolpath(opts){
       const a=worldToScreen(s.a), b=worldToScreen(s.b);
       ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
     }else{
-      // simple arc draw (rough)
+      // display-only: draw full circle at center/radius (simple + stable)
       const c=worldToScreen(s.c);
-      const r=s.r*view.scale;
+      const rr=s.r*view.scale;
       ctx.beginPath();
-      ctx.arc(c.x,c.y,Math.abs(r),0,Math.PI*2);
+      ctx.arc(c.x,c.y,Math.abs(rr),0,Math.PI*2);
       ctx.stroke();
     }
   }
@@ -635,7 +687,6 @@ function draw(){
   clear();
   drawGrid();
 
-  // If no toolpath built yet, show preview geometry
   if(playback.length){
     drawToolpath(opts);
     drawToolDot();
@@ -688,13 +739,12 @@ $("file").addEventListener("change", async (e)=>{
     return;
   }
 
-  // Build preview segments immediately (instant display)
   const opts=readOpts();
   let segs = extractSegments(dxfParsed);
 
   if(!segs.length){
-    alert("No supported geometry (need LINE/ARC/CIRCLE).");
-    setTopStatus("No supported geometry");
+    alert("No geometry extracted. If this is a weird DXF, re-export as R12/ASCII or convert polylines to lines.");
+    setTopStatus("No geometry extracted");
     return;
   }
 
@@ -704,8 +754,11 @@ $("file").addEventListener("change", async (e)=>{
     segs = segs.map(s=>shiftSeg(s,-cx,-cy));
   }
 
-  previewSegs = segs.map(s=>({a:s.a,b:s.b})); // preview uses endpoints only
-  playback = []; // clear old toolpath sim
+  // preview uses endpoints for stability
+  previewSegs = segs.map(s=>({a:s.a,b:s.b}));
+
+  // clear previous toolpath
+  playback = [];
   moves = [];
   lastDAT = "";
   $("download").disabled = true;
@@ -715,13 +768,12 @@ $("file").addEventListener("change", async (e)=>{
   $("fit").disabled = false;
 
   setTopStatus(`Loaded: ${f.name}`);
-  setStats(`Preview ready. Segments: ${segs.length}. Click “Build Toolpath + DAT”.`);
+  setStats(`Preview ready. Extracted segments: ${segs.length}. Click “Build Toolpath + DAT”.`);
   draw();
 });
 
 $("fit").addEventListener("click", ()=>{
   if(playback.length){
-    // fit to playback
     const segs = playback.map(s=>({a:s.a,b:s.b}));
     fitViewToSegments(segs);
   } else {
@@ -743,19 +795,15 @@ $("build").addEventListener("click", ()=>{
     segs = segs.map(s=>shiftSeg(s,-cx,-cy));
   }
 
-  // Build toolpaths
   if(opts.tracedMode){
     toolpaths = rebuildTracedLinesIntoPaths(segs, opts.snapGrid, opts.angleTolDeg);
-    // traced = line-only by design (best for traced DXFs)
   } else {
     toolpaths = chainSegmentsIntoPaths(segs, opts.chainTol);
     for(const p of toolpaths) p.segments = mergeCollinear(p.segments, opts.chainTol);
   }
 
-  // Order paths so rapids are shorter (big upgrade)
   toolpaths = orderPathsNearest(toolpaths);
 
-  // Build moves / DAT / sim
   moves = buildMoves(toolpaths, opts);
   lastDAT = buildDAT(moves, opts);
   playback = buildPlayback(moves);
@@ -768,7 +816,7 @@ $("build").addEventListener("click", ()=>{
   playing = false;
 
   setTopStatus(opts.tracedMode ? "Built (Traced Art Mode)" : "Built (Normal Mode)");
-  setStats(`Paths: ${toolpaths.length} | DXF segments: ${segs.length} | DAT lines: ${lastDAT.split("\n").length}`);
+  setStats(`Paths: ${toolpaths.length} | Extracted segments: ${segs.length} | DAT lines: ${lastDAT.split("\n").length}`);
   draw();
 });
 
@@ -784,12 +832,9 @@ $("download").addEventListener("click", ()=>{
 
 $("hideRapids").addEventListener("change", ()=>draw());
 $("tracedMode").addEventListener("change", ()=>draw());
-$("centerXY").addEventListener("change", ()=> {
-  // re-preview by reloading current parsed (if any)
+
+$("centerXY").addEventListener("change", ()=>{
   if(!dxfParsed) return;
-  // simulate “re-import” without needing the file again
-  const fake = { target: { files: [ { name:"(current)", text: async()=>dxfText } ] } };
-  // but simpler: just rebuild preview
   const opts=readOpts();
   let segs=extractSegments(dxfParsed);
   if(opts.centerXY){
