@@ -1,149 +1,45 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>DXF → DAT + Toolpath Simulation (Generic CNC / Inches)</title>
-  <style>
-    :root { --bg:#0b0c10; --panel:#12141a; --text:#e9eef6; --muted:#9aa4b2; --line:#2a2f3a; }
-    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); }
-    header { padding:14px 16px; border-bottom:1px solid var(--line); background:rgba(18,20,26,0.8); position:sticky; top:0; backdrop-filter: blur(10px); z-index:10; }
-    header h1 { margin:0; font-size:16px; font-weight:650; }
-    header p { margin:6px 0 0; font-size:12px; color:var(--muted); line-height:1.35; }
-
-    .wrap { display:grid; grid-template-columns: 420px 1fr; gap:14px; padding:14px; }
-    .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px; }
-    .card h2 { margin:0 0 10px; font-size:13px; color:var(--muted); font-weight:650; }
-    label { display:block; font-size:12px; color:var(--muted); margin:10px 0 6px; }
-    input, select, button { font:inherit; }
-    input[type="number"], input[type="text"], select {
-      width:100%; padding:10px; border-radius:12px; border:1px solid var(--line);
-      background:#0f1117; color:var(--text);
-    }
-    input[type="file"] { width:100%; }
-    .row { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
-    .btnrow { display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
-    button {
-      padding:10px 12px; border-radius:12px; border:1px solid var(--line);
-      background:#0f1117; color:var(--text); cursor:pointer;
-    }
-    button:disabled { opacity:0.45; cursor:not-allowed; }
-
-    .viewer { position:relative; min-height: 520px; }
-    canvas { width:100%; height: calc(100vh - 120px); min-height:520px; display:block; border-radius:14px; background:#07080b; border:1px solid var(--line); }
-    .hud {
-      position:absolute; left:12px; top:12px; right:12px;
-      display:flex; justify-content:space-between; gap:10px; pointer-events:none;
-      font-size:12px; color:var(--muted);
-    }
-    .hud .pill { background:rgba(18,20,26,0.7); border:1px solid var(--line); border-radius:999px; padding:6px 10px; }
-    .slider { display:flex; align-items:center; gap:10px; margin-top:12px; }
-    input[type="range"] { width:100%; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
-    .tiny { font-size:11px; color:var(--muted); line-height:1.35; margin-top:8px; }
-    .warn { color:#ffcc00; }
-  </style>
+<meta charset="utf-8">
+<title>DXF → DAT (Traced Art CNC)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body { margin:0; font-family: system-ui, sans-serif; background:#111; color:#eee; }
+#ui {
+  padding:12px;
+  background:#1b1b1b;
+  display:grid;
+  grid-template-columns: repeat(6,1fr);
+  gap:10px;
+}
+input,button { padding:8px; font-size:14px; }
+button { cursor:pointer; }
+canvas { display:block; width:100vw; height:calc(100vh - 72px); background:#000; }
+label { font-size:12px; opacity:0.8; }
+</style>
 </head>
 <body>
-  <header>
-    <h1>DXF → DAT + Toolpath Simulation (Generic CNC / Inches)</h1>
-    <p>
-      Outputs <span class="mono">G20</span> inch G-code and saves as <span class="mono">.dat</span>.
-      Supports LINE / ARC / CIRCLE / (LW)POLYLINE incl. bulge arcs. Origin centered at part midpoint.
-    </p>
-  </header>
 
-  <div class="wrap">
-    <div class="card">
-      <h2>Inputs</h2>
+<div id="ui">
+  <input type="file" id="file" accept=".dxf">
+  <input type="number" id="safeZ" value="0.5" step="0.01">
+  <input type="number" id="cutZ" value="-0.0625" step="0.01">
+  <input type="number" id="feedXY" value="30">
+  <input type="number" id="feedZ" value="20">
+  <button id="build">Build</button>
 
-      <label>DXF file</label>
-      <input type="file" id="file" accept=".dxf" />
+  <label>Safe Z</label>
+  <label>Cut Z</label>
+  <label>Feed XY</label>
+  <label>Feed Z</label>
+  <label></label>
+  <button id="download" disabled>Download .dat</button>
+</div>
 
-      <label style="display:flex; gap:10px; align-items:center; margin-top:12px;">
-        <input type="checkbox" id="centerXY" checked />
-        Center part at X0 Y0 (origin in the middle)
-      </label>
+<canvas id="c"></canvas>
 
-      <label style="display:flex; gap:10px; align-items:center; margin-top:10px;">
-        <input type="checkbox" id="hideRapids" />
-        Hide rapids (display only)
-      </label>
-
-      <div class="row">
-        <div>
-          <label>Safe Z (in)</label>
-          <input type="number" id="safeZ" value="0.50" step="0.01" />
-        </div>
-        <div>
-          <label>Cut Z (in) <span class="warn">(should be negative)</span></label>
-          <input type="number" id="cutZ" value="-0.0625" step="0.0005" />
-        </div>
-      </div>
-
-      <div class="row">
-        <div>
-          <label>Feed XY (in/min)</label>
-          <input type="number" id="feedXY" value="30" step="1" />
-        </div>
-        <div>
-          <label>Feed Z (in/min)</label>
-          <input type="number" id="feedZ" value="20" step="1" />
-        </div>
-      </div>
-
-      <div class="row">
-        <div>
-          <label>Chain tolerance (in)</label>
-          <input type="number" id="chainTol" value="0.001" step="0.0005" />
-        </div>
-        <div>
-          <label>Tool diameter (in)</label>
-          <input type="number" id="toolDiam" value="0.25" step="0.01" />
-        </div>
-      </div>
-
-      <label>Tool comment</label>
-      <input type="text" id="toolComment" value="(T1 - 1/4 endmill, centerline, no comp)" />
-
-      <div class="btnrow">
-        <button id="build">Build toolpath</button>
-        <button id="download" disabled>Download output.dat</button>
-        <button id="fit" disabled>Fit View</button>
-      </div>
-
-      <div class="slider">
-        <button id="play" disabled>Play</button>
-        <button id="pause" disabled>Pause</button>
-        <input type="range" id="scrub" min="0" max="1" step="0.001" value="0" disabled />
-      </div>
-
-      <p class="mono" id="status" style="margin:10px 0 0; color:var(--muted);">Status: idle</p>
-      <p class="mono" id="stats" style="margin:6px 0 0; color:var(--muted);">Paths: — | Segments: — | DAT lines: —</p>
-
-      <div class="tiny">
-        Notes:
-        <ul style="margin:6px 0 0; padding-left:16px;">
-          <li>Arcs output as <span class="mono">G2/G3</span> with <span class="mono">I/J</span> incremental center offsets.</li>
-          <li>Continuous cut per chained path (no plunge/retract per segment).</li>
-          <li>Pan = drag, Zoom = mousewheel.</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="viewer card">
-      <h2>Simulation</h2>
-      <div style="position:relative;">
-        <canvas id="c"></canvas>
-        <div class="hud">
-          <div class="pill mono" id="hudPos">XY: —</div>
-          <div class="pill mono" id="hudMode">Mode: —</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
-  <script src="./app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dxf-parser/dist/dxf-parser.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
