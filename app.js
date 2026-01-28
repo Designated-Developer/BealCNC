@@ -1,5 +1,6 @@
-// NorrisCAM - DXF preview (instant) + Toolpath + DAT export
-// FIX: Support LWPOLYLINE / POLYLINE / SPLINE fallback so “No supported geometry” doesn’t happen.
+// NorrisCAM — DXF preview + simplified toolpath + .DAT output for i-Carver via i-Picture
+// Fixes: Build button not firing (binds to both #buildToolpath and #build)
+// Adds: i-Picture-style origin options (center / corners), inch output G20
 
 const $ = (id) => document.getElementById(id);
 
@@ -9,13 +10,13 @@ const ctx = canvas.getContext("2d");
 let dxfText = null;
 let dxfParsed = null;
 
-let previewSegs = [];   // geometry for instant preview
-let toolpaths = [];     // array of paths {segments:[...]}
-let moves = [];         // for simulation and DAT
-let playback = [];      // segments for sim
+let previewSegs = [];   // {a,b}
+let playback = [];      // for sim
+let moves = [];
 let lastDAT = "";
 
 let playing = false;
+
 const view = { scale: 60, ox: 0, oy: 0, dragging: false, lx: 0, ly: 0 };
 
 function setTopStatus(s){ $("topStatus").textContent = s; }
@@ -23,21 +24,21 @@ function setStats(s){ $("stats").textContent = s; }
 
 function readOpts(){
   const safeZ = Number($("safeZ").value || 0.5);
-  const totalDepth = -Math.abs(Number($("cutZ").value || 0.0625)); // forced negative
+  const totalDepth = -Math.abs(Number($("cutZ").value || 0.0625));
   const stepDown = Math.max(0.001, Number($("stepDown").value || 0.0625));
-  const leadIn = Math.max(0, Number($("leadIn").value || 0));
+
   return {
-    centerXY: $("centerXY").checked,
+    units: "inch", // i-Carver/i-Picture can do mm, but we output inch per your requirement
+    origin: $("origin").value, // center/ul/ur/ll/lr
     tracedMode: $("tracedMode").checked,
     hideRapids: $("hideRapids").checked,
     safeZ,
     totalDepth,
     stepDown,
-    leadIn,
     feedXY: Number($("feedXY").value || 30),
     feedZ: Number($("feedZ").value || 20),
-    chainTol: Math.max(0.0005, Number($("chainTol").value || 0.003)),
-    outPrec: Number($("outPrec").value || 0.001),
+    chainTol: Math.max(0.0005, Number($("chainTol").value || 0.02)),
+    outPrec: Number($("outPrec").value || 0.01),
     snapGrid: Math.max(0.001, Number($("snapGrid").value || 0.02)),
     angleTolDeg: Math.max(1, Number($("angleTolDeg").value || 12)),
     toolComment: $("toolComment").value || "(T1 - 1/4 endmill, centerline, no comp)"
@@ -50,7 +51,6 @@ function fmt(n, step){
   if(step < 1) dec = Math.max(0, Math.ceil(-Math.log10(step)));
   return q.toFixed(dec).replace(/\.?0+$/,"");
 }
-
 function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
 function degToRad(d){ return d*Math.PI/180; }
 function angle(a,b){ return Math.atan2(b.y-a.y, b.x-a.x); }
@@ -69,14 +69,7 @@ function reverseSeg(s){
   return { ...s, a:s.b, b:s.a, ccw:!s.ccw, a1:s.a2, a2:s.a1 };
 }
 
-// ---------------- DXF extract (robust) ----------------
-// Segment types:
-// line: {kind:'line', a:{x,y}, b:{x,y}}
-// arc : {kind:'arc',  a:{x,y}, b:{x,y}, c:{x,y}, r, ccw, a1, a2}
-//
-// Supports: LINE, ARC, CIRCLE, LWPOLYLINE, POLYLINE
-// SPLINE fallback: connect fit/control points as lines (good for ±0.10")
-
+// -------- DXF Extract (LINE/ARC/CIRCLE + LWPOLYLINE/POLYLINE + SPLINE fallback) --------
 function extractSegments(dxf){
   const out = [];
   const ents = dxf.entities || [];
@@ -128,8 +121,6 @@ function extractSegments(dxf){
     }
 
     if(e.type === "SPLINE"){
-      // Fallback: connect fitPoints or controlPoints with straight segments.
-      // This is not true spline machining, but it is reliable for traced art / ±0.10".
       const pts = (e.fitPoints && e.fitPoints.length ? e.fitPoints : e.controlPoints) || [];
       if(pts.length >= 2){
         for(let i=0;i<pts.length-1;i++){
@@ -139,14 +130,11 @@ function extractSegments(dxf){
       }
       continue;
     }
-
-    // Ignore everything else: TEXT, MTEXT, DIMENSION, HATCH, etc.
   }
 
   return out;
 }
 
-// Bulge arc conversion for polylines
 function bulgeToArcSeg(p, q, bulge) {
   const x1=p.x,y1=p.y,x2=q.x,y2=q.y;
   const dx=x2-x1, dy=y2-y1;
@@ -173,7 +161,7 @@ function bulgeToArcSeg(p, q, bulge) {
   return { kind:"arc", a:{x:x1,y:y1}, b:{x:x2,y:y2}, c:{x:cx,y:cy}, r, ccw, a1, a2 };
 }
 
-// ---------------- bounds / shift ----------------
+// -------- Bounds / Origin shift --------
 function boundsOfSegments(segs){
   let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
   for(const s of segs){
@@ -181,11 +169,6 @@ function boundsOfSegments(segs){
     minY=Math.min(minY,s.a.y,s.b.y);
     maxX=Math.max(maxX,s.a.x,s.b.x);
     maxY=Math.max(maxY,s.a.y,s.b.y);
-    if(s.kind==="arc"){
-      // include center loosely (safe for view fit; not exact arc extents, but fine)
-      minX=Math.min(minX,s.c.x); minY=Math.min(minY,s.c.y);
-      maxX=Math.max(maxX,s.c.x); maxY=Math.max(maxY,s.c.y);
-    }
   }
   if(!isFinite(minX)) return {minX:0,minY:0,maxX:1,maxY:1};
   return {minX,minY,maxX,maxY};
@@ -195,64 +178,95 @@ function shiftSeg(s, dx, dy){
   return {...s, a:{x:s.a.x+dx,y:s.a.y+dy}, b:{x:s.b.x+dx,y:s.b.y+dy}, c:{x:s.c.x+dx,y:s.c.y+dy}};
 }
 
-// ---------------- chaining (normal) ----------------
-function keyPt(p,tol){
-  const qx=Math.round(p.x/tol);
-  const qy=Math.round(p.y/tol);
-  return `${qx},${qy}`;
-}
-function chainSegmentsIntoPaths(segs, tol){
-  const startMap=new Map();
-  const endMap=new Map();
-  for(let i=0;i<segs.length;i++){
-    const s=segs[i];
-    const ks=keyPt(s.a,tol), ke=keyPt(s.b,tol);
-    if(!startMap.has(ks)) startMap.set(ks,[]);
-    if(!endMap.has(ke)) endMap.set(ke,[]);
-    startMap.get(ks).push(i);
-    endMap.get(ke).push(i);
+function applyOriginShift(segs, origin){
+  const b = boundsOfSegments(segs);
+  const cx=(b.minX+b.maxX)/2, cy=(b.minY+b.maxY)/2;
+
+  // i-Picture has a "Center" and corner origins; we mimic that shift.
+  // Center => geometry centered at 0,0.
+  // Corners => chosen corner becomes 0,0.
+  let dx=0, dy=0;
+
+  if(origin==="center"){
+    dx = -cx; dy = -cy;
+  }else if(origin==="ul"){ // upper-left => (minX,maxY) becomes (0,0)
+    dx = -b.minX; dy = -b.maxY;
+  }else if(origin==="ur"){ // (maxX,maxY)
+    dx = -b.maxX; dy = -b.maxY;
+  }else if(origin==="ll"){ // (minX,minY)
+    dx = -b.minX; dy = -b.minY;
+  }else if(origin==="lr"){ // (maxX,minY)
+    dx = -b.maxX; dy = -b.minY;
   }
-  const used=new Array(segs.length).fill(false);
+
+  return segs.map(s => shiftSeg(s, dx, dy));
+}
+
+// -------- Toolpath building (±0.10" friendly) --------
+function rebuildTracedLinesIntoPaths(segs, snapGrid, angleTolDeg, outPrec){
+  // Keep only lines (logos/traces are almost always polylines converted to lines by extractor)
+  const lines = segs
+    .filter(s=>s.kind==="line")
+    .map(s=>({kind:"line", a:snapPoint(s.a,snapGrid), b:snapPoint(s.b,snapGrid)}))
+    .filter(s=>!(Math.abs(s.a.x-s.b.x)<1e-12 && Math.abs(s.a.y-s.b.y)<1e-12));
+
+  // Remove tiny jitter segments (this is what caused your “stitching” micro-moves before)
+  const minLen = Math.max(outPrec*0.9, snapGrid*0.5);
+  const cleaned = [];
+  for(const s of lines){
+    if(dist(s.a,s.b) >= minLen) cleaned.push(s);
+  }
+
+  const tol = snapGrid * 0.55;
+  const angTol = degToRad(angleTolDeg);
+
+  const map=new Map();
+  const k=(p)=>`${Math.round(p.x/snapGrid)},${Math.round(p.y/snapGrid)}`;
+  for(let i=0;i<cleaned.length;i++){
+    const ks=k(cleaned[i].a);
+    if(!map.has(ks)) map.set(ks,[]);
+    map.get(ks).push(i);
+  }
+
+  const used=new Array(cleaned.length).fill(false);
   const paths=[];
 
-  function findNext(pt){
-    const k=keyPt(pt,tol);
-    for(const idx of (startMap.get(k)||[])){
-      if(used[idx]) continue;
-      if(dist(segs[idx].a, pt) <= tol) return {idx, seg: segs[idx]};
-    }
-    for(const idx of (endMap.get(k)||[])){
-      if(used[idx]) continue;
-      if(dist(segs[idx].b, pt) <= tol) return {idx, seg: reverseSeg(segs[idx])};
-    }
-    return null;
-  }
-
-  for(let i=0;i<segs.length;i++){
+  for(let i=0;i<cleaned.length;i++){
     if(used[i]) continue;
     used[i]=true;
-    const chain=[segs[i]];
 
-    let end=chain[chain.length-1].b;
+    const chain=[cleaned[i]];
+    let cur=cleaned[i];
+
     while(true){
-      const nxt=findNext(end);
-      if(!nxt) break;
-      used[nxt.idx]=true;
-      chain.push(nxt.seg);
-      end=nxt.seg.b;
+      const end=cur.b;
+      const cand=map.get(k(end))||[];
+      const d0=angle(cur.a,cur.b);
+
+      let best=-1, bestScore=Infinity;
+
+      for(const idx of cand){
+        if(used[idx]) continue;
+        const s=cleaned[idx];
+        if(!samePt(end, s.a, tol)) continue;
+
+        const d1=angle(s.a,s.b);
+        let da=Math.abs(d1-d0);
+        da=Math.min(da, Math.abs(da-2*Math.PI));
+        if(da<=angTol && da<bestScore){
+          best=idx; bestScore=da;
+        }
+      }
+      if(best===-1) break;
+      used[best]=true;
+      chain.push(cleaned[best]);
+      cur=cleaned[best];
     }
 
-    let start=chain[0].a;
-    while(true){
-      const nxt=findNext(start);
-      if(!nxt) break;
-      used[nxt.idx]=true;
-      chain.unshift(reverseSeg(nxt.seg));
-      start=chain[0].a;
-    }
-
-    paths.push({segments: chain});
+    // merge collinear
+    paths.push({segments: mergeCollinear(chain, snapGrid)});
   }
+
   return paths;
 }
 
@@ -284,65 +298,6 @@ function mergeCollinear(pathSegs, tol){
   return out;
 }
 
-// ---------------- traced mode ----------------
-function rebuildTracedLinesIntoPaths(segs, snapGrid, angleTolDeg){
-  const lines = segs
-    .filter(s=>s.kind==="line")
-    .map(s=>({kind:"line", a:snapPoint(s.a,snapGrid), b:snapPoint(s.b,snapGrid)}))
-    .filter(s=>!(Math.abs(s.a.x-s.b.x)<1e-12 && Math.abs(s.a.y-s.b.y)<1e-12));
-
-  const tol = snapGrid * 0.55;
-  const angTol = degToRad(angleTolDeg);
-
-  const map=new Map();
-  const k=(p)=>`${Math.round(p.x/snapGrid)},${Math.round(p.y/snapGrid)}`;
-  for(let i=0;i<lines.length;i++){
-    const ks=k(lines[i].a);
-    if(!map.has(ks)) map.set(ks,[]);
-    map.get(ks).push(i);
-  }
-
-  const used=new Array(lines.length).fill(false);
-  const paths=[];
-
-  for(let i=0;i<lines.length;i++){
-    if(used[i]) continue;
-    used[i]=true;
-
-    const chain=[lines[i]];
-    let cur=lines[i];
-
-    while(true){
-      const end=cur.b;
-      const cand=map.get(k(end))||[];
-      const d0=angle(cur.a,cur.b);
-
-      let best=-1, bestScore=Infinity;
-
-      for(const idx of cand){
-        if(used[idx]) continue;
-        const s=lines[idx];
-        if(!samePt(end, s.a, tol)) continue;
-
-        const d1=angle(s.a,s.b);
-        let da=Math.abs(d1-d0);
-        da=Math.min(da, Math.abs(da-2*Math.PI));
-        if(da<=angTol && da<bestScore){
-          best=idx; bestScore=da;
-        }
-      }
-      if(best===-1) break;
-      used[best]=true;
-      chain.push(lines[best]);
-      cur=lines[best];
-    }
-
-    paths.push({segments: mergeCollinear(chain, snapGrid)});
-  }
-
-  return paths;
-}
-
 function orderPathsNearest(paths){
   if(paths.length<=1) return paths;
   const remaining = paths.slice();
@@ -350,16 +305,25 @@ function orderPathsNearest(paths){
 
   let cur = remaining.shift();
   ordered.push(cur);
-  let curPt = cur.segments[0].a;
+  let curPt = cur.segments[cur.segments.length-1].b;
 
   while(remaining.length){
-    let bestIdx=0, bestD=Infinity;
+    let bestIdx=0, bestD=Infinity, flip=false;
     for(let i=0;i<remaining.length;i++){
       const p=remaining[i];
-      const d=dist(curPt, p.segments[0].a);
-      if(d<bestD){ bestD=d; bestIdx=i; }
+      const a=p.segments[0].a;
+      const b=p.segments[p.segments.length-1].b;
+
+      const dA=dist(curPt,a);
+      const dB=dist(curPt,b);
+
+      if(dA<bestD){ bestD=dA; bestIdx=i; flip=false; }
+      if(dB<bestD){ bestD=dB; bestIdx=i; flip=true; }
     }
     cur = remaining.splice(bestIdx,1)[0];
+    if(flip){
+      cur.segments = cur.segments.slice().reverse().map(s => ({...s, a:s.b, b:s.a}));
+    }
     ordered.push(cur);
     curPt = cur.segments[cur.segments.length-1].b;
   }
@@ -367,7 +331,7 @@ function orderPathsNearest(paths){
   return ordered;
 }
 
-// ---------------- moves + passes ----------------
+// -------- Moves / DAT --------
 function buildMoves(paths, opts){
   const m=[];
   m.push({type:"retract", z:opts.safeZ});
@@ -377,8 +341,7 @@ function buildMoves(paths, opts){
   const passCount = Math.max(1, Math.ceil(depth / step));
   const depths = [];
   for(let i=1;i<=passCount;i++){
-    const d = -Math.min(depth, i*step);
-    depths.push(d);
+    depths.push(-Math.min(depth, i*step));
   }
 
   let curXY = {x:0,y:0};
@@ -392,31 +355,12 @@ function buildMoves(paths, opts){
       if(dist(curXY, start) > 1e-12) m.push({type:"rapidXY", x:start.x, y:start.y});
       curXY = {x:start.x, y:start.y};
 
-      if(opts.leadIn > 0 && p.segments[0].kind==="line"){
-        const s0=p.segments[0];
-        const dx=s0.b.x - s0.a.x, dy=s0.b.y - s0.a.y;
-        const L=Math.hypot(dx,dy);
-        if(L>1e-9){
-          const ux=dx/L, uy=dy/L;
-          const leadStart = { x: s0.a.x - ux*opts.leadIn, y: s0.a.y - uy*opts.leadIn };
-          m.push({type:"rapidXY", x:leadStart.x, y:leadStart.y});
-          curXY = leadStart;
-        }
-      }
-
       m.push({type:"plunge", z:passZ, f:opts.feedZ});
       m.push({type:"feedXY", f:opts.feedXY});
 
       for(const s of p.segments){
-        if(s.kind==="line"){
-          m.push({type:"cutLine", x:s.b.x, y:s.b.y});
-          curXY = {x:s.b.x, y:s.b.y};
-        } else {
-          const i = s.c.x - s.a.x;
-          const j = s.c.y - s.a.y;
-          m.push({type:"cutArc", x:s.b.x, y:s.b.y, i, j, ccw:s.ccw});
-          curXY = {x:s.b.x, y:s.b.y};
-        }
+        m.push({type:"cutLine", x:s.b.x, y:s.b.y});
+        curXY = {x:s.b.x, y:s.b.y};
       }
 
       m.push({type:"retract", z:opts.safeZ});
@@ -426,13 +370,12 @@ function buildMoves(paths, opts){
   return m;
 }
 
-// ---------------- DAT output ----------------
 function buildDAT(moves, opts){
   const P = opts.outPrec;
   const g=[];
   g.push("%");
   g.push("(NorrisCAM)");
-  g.push("(Generated by DXF→DAT Toolpath)");
+  g.push("(i-Carver 40-915 XM1 via i-Picture: .dat/.nc/.txt import -> GEE convert)");
   g.push(opts.toolComment);
   g.push("G90 (absolute)");
   g.push("G94 (feed/min)");
@@ -445,7 +388,6 @@ function buildDAT(moves, opts){
 
   const outXY=(x,y)=>`X${fmt(x,P)} Y${fmt(y,P)}`;
   const outZ=(z)=>`Z${fmt(z,P)}`;
-  const outIJ=(i,j)=>`I${fmt(i,P)} J${fmt(j,P)}`;
 
   for(const m of moves){
     if(m.type==="retract"){
@@ -484,12 +426,6 @@ function buildDAT(moves, opts){
       atXY={x:m.x,y:m.y};
       continue;
     }
-    if(m.type==="cutArc"){
-      const code=m.ccw ? "G3" : "G2";
-      g.push(`${code} ${outXY(m.x,m.y)} ${outIJ(m.i,m.j)}`);
-      atXY={x:m.x,y:m.y};
-      continue;
-    }
   }
 
   g.push("M30");
@@ -497,7 +433,7 @@ function buildDAT(moves, opts){
   return g.join("\n");
 }
 
-// ---------------- Playback for sim ----------------
+// -------- Simulation playback --------
 function buildPlayback(moves){
   const segs=[];
   let cur={x:0,y:0};
@@ -515,15 +451,6 @@ function buildPlayback(moves){
       const len=Math.hypot(b.x-a.x,b.y-a.y);
       cum+=len;
       segs.push({kind:"line",mode:"CUT",a,b,len,cum});
-      cur=b;
-    }else if(m.type==="cutArc"){
-      const a={...cur};
-      const c={x:a.x+m.i,y:a.y+m.j};
-      const b={x:m.x,y:m.y};
-      const chord=Math.hypot(b.x-a.x,b.y-a.y);
-      const len=Math.max(1e-9,chord);
-      cum+=len;
-      segs.push({kind:"arc",mode:"CUT",a,b,c,r:Math.hypot(a.x-c.x,a.y-c.y),ccw:m.ccw,len,cum});
       cur=b;
     }
   }
@@ -545,21 +472,14 @@ function pointAtT(t){
   const prev=lo===0 ? 0 : playback[lo-1].cum;
   const u = s.len===0 ? 0 : (target - prev)/s.len;
 
-  if(s.kind==="line"){
-    return {
-      x: s.a.x + (s.b.x-s.a.x)*u,
-      y: s.a.y + (s.b.y-s.a.y)*u,
-      mode: s.mode
-    };
-  }else{
-    const a1=Math.atan2(s.a.y-s.c.y,s.a.x-s.c.x);
-    const a2=Math.atan2(s.b.y-s.c.y,s.b.x-s.c.x);
-    const ang=a1 + (a2-a1)*u;
-    return { x:s.c.x+s.r*Math.cos(ang), y:s.c.y+s.r*Math.sin(ang), mode:s.mode };
-  }
+  return {
+    x: s.a.x + (s.b.x-s.a.x)*u,
+    y: s.a.y + (s.b.y-s.a.y)*u,
+    mode: s.mode
+  };
 }
 
-// ---------------- Drawing / view ----------------
+// -------- Drawing / view --------
 function resize(){
   const dpr=window.devicePixelRatio||1;
   const r=canvas.getBoundingClientRect();
@@ -654,17 +574,8 @@ function drawToolpath(opts){
   ctx.setLineDash([]);
   for(const s of playback){
     if(s.mode!=="CUT") continue;
-    if(s.kind==="line"){
-      const a=worldToScreen(s.a), b=worldToScreen(s.b);
-      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
-    }else{
-      // display-only: draw full circle at center/radius (simple + stable)
-      const c=worldToScreen(s.c);
-      const rr=s.r*view.scale;
-      ctx.beginPath();
-      ctx.arc(c.x,c.y,Math.abs(rr),0,Math.PI*2);
-      ctx.stroke();
-    }
+    const a=worldToScreen(s.a), b=worldToScreen(s.b);
+    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
   }
   ctx.restore();
 }
@@ -697,7 +608,7 @@ function draw(){
   }
 }
 
-// ---------------- Interaction: pan/zoom ----------------
+// -------- Pan/Zoom --------
 canvas.addEventListener("mousedown",(e)=>{ view.dragging=true; view.lx=e.clientX; view.ly=e.clientY; });
 window.addEventListener("mouseup",()=>{ view.dragging=false; });
 window.addEventListener("mousemove",(e)=>{
@@ -720,7 +631,7 @@ canvas.addEventListener("wheel",(e)=>{
   draw();
 },{passive:false});
 
-// ---------------- UI behavior ----------------
+// -------- UI --------
 $("file").addEventListener("change", async (e)=>{
   const f=e.target.files?.[0];
   if(!f) return;
@@ -740,84 +651,88 @@ $("file").addEventListener("change", async (e)=>{
   }
 
   const opts=readOpts();
-  let segs = extractSegments(dxfParsed);
 
+  let segs = extractSegments(dxfParsed);
   if(!segs.length){
-    alert("No geometry extracted. If this is a weird DXF, re-export as R12/ASCII or convert polylines to lines.");
+    alert("No geometry extracted. Re-export DXF as R12/ASCII or explode polylines.");
     setTopStatus("No geometry extracted");
     return;
   }
 
-  if(opts.centerXY){
-    const b=boundsOfSegments(segs);
-    const cx=(b.minX+b.maxX)/2, cy=(b.minY+b.maxY)/2;
-    segs = segs.map(s=>shiftSeg(s,-cx,-cy));
-  }
+  segs = applyOriginShift(segs, opts.origin);
 
-  // preview uses endpoints for stability
   previewSegs = segs.map(s=>({a:s.a,b:s.b}));
 
-  // clear previous toolpath
+  // clear toolpath
   playback = [];
   moves = [];
   lastDAT = "";
   $("download").disabled = true;
 
   fitViewToSegments(previewSegs);
-  $("build").disabled = false;
   $("fit").disabled = false;
 
   setTopStatus(`Loaded: ${f.name}`);
-  setStats(`Preview ready. Extracted segments: ${segs.length}. Click “Build Toolpath + DAT”.`);
+  setStats(`Preview ready. Segments extracted: ${segs.length}. Click “Build Toolpath + DAT”.`);
   draw();
 });
 
-$("fit").addEventListener("click", ()=>{
-  if(playback.length){
-    const segs = playback.map(s=>({a:s.a,b:s.b}));
-    fitViewToSegments(segs);
-  } else {
-    fitViewToSegments(previewSegs);
+// Bind Build button robustly (THIS is the fix)
+function bindClickAny(ids, fn){
+  let bound = false;
+  for(const id of ids){
+    const el = $(id);
+    if(el){
+      el.addEventListener("click", fn);
+      bound = true;
+    }
   }
-  draw();
-});
+  return bound;
+}
 
-$("build").addEventListener("click", ()=>{
-  if(!dxfParsed) return;
-
-  const opts=readOpts();
-
-  let segs = extractSegments(dxfParsed);
-
-  if(opts.centerXY){
-    const b=boundsOfSegments(segs);
-    const cx=(b.minX+b.maxX)/2, cy=(b.minY+b.maxY)/2;
-    segs = segs.map(s=>shiftSeg(s,-cx,-cy));
+bindClickAny(["buildToolpath","build"], ()=>{
+  if(!dxfParsed){
+    alert("Import a DXF first.");
+    return;
   }
 
-  if(opts.tracedMode){
-    toolpaths = rebuildTracedLinesIntoPaths(segs, opts.snapGrid, opts.angleTolDeg);
-  } else {
-    toolpaths = chainSegmentsIntoPaths(segs, opts.chainTol);
-    for(const p of toolpaths) p.segments = mergeCollinear(p.segments, opts.chainTol);
+  try{
+    setTopStatus("Building toolpath…");
+
+    const opts=readOpts();
+
+    let segs = extractSegments(dxfParsed);
+    segs = applyOriginShift(segs, opts.origin);
+
+    let paths;
+    if(opts.tracedMode){
+      paths = rebuildTracedLinesIntoPaths(segs, opts.snapGrid, opts.angleTolDeg, opts.outPrec);
+    }else{
+      // Normal mode not emphasized; traced art mode is what you want for student DXFs
+      paths = rebuildTracedLinesIntoPaths(segs, opts.snapGrid, opts.angleTolDeg, opts.outPrec);
+    }
+
+    paths = orderPathsNearest(paths);
+
+    moves = buildMoves(paths, opts);
+    lastDAT = buildDAT(moves, opts);
+    playback = buildPlayback(moves);
+
+    $("download").disabled = false;
+    $("play").disabled = false;
+    $("pause").disabled = false;
+    $("scrub").disabled = false;
+    $("scrub").value = "0";
+    playing = false;
+
+    setTopStatus("Built toolpath");
+    setStats(`Paths: ${paths.length} | DAT lines: ${lastDAT.split("\n").length} | Origin: ${opts.origin.toUpperCase()} | Output: inches (.dat)`);
+    draw();
+  }catch(err){
+    console.error(err);
+    alert("Build failed. Open the browser console (F12) and copy the error to me.");
+    setTopStatus("Build failed (see console)");
   }
-
-  toolpaths = orderPathsNearest(toolpaths);
-
-  moves = buildMoves(toolpaths, opts);
-  lastDAT = buildDAT(moves, opts);
-  playback = buildPlayback(moves);
-
-  $("download").disabled = false;
-  $("play").disabled = false;
-  $("pause").disabled = false;
-  $("scrub").disabled = false;
-  $("scrub").value = "0";
-  playing = false;
-
-  setTopStatus(opts.tracedMode ? "Built (Traced Art Mode)" : "Built (Normal Mode)");
-  setStats(`Paths: ${toolpaths.length} | Extracted segments: ${segs.length} | DAT lines: ${lastDAT.split("\n").length}`);
-  draw();
 });
 
 $("download").addEventListener("click", ()=>{
@@ -830,28 +745,33 @@ $("download").addEventListener("click", ()=>{
   URL.revokeObjectURL(a.href);
 });
 
-$("hideRapids").addEventListener("change", ()=>draw());
-$("tracedMode").addEventListener("change", ()=>draw());
-
-$("centerXY").addEventListener("change", ()=>{
-  if(!dxfParsed) return;
-  const opts=readOpts();
-  let segs=extractSegments(dxfParsed);
-  if(opts.centerXY){
-    const b=boundsOfSegments(segs);
-    const cx=(b.minX+b.maxX)/2, cy=(b.minY+b.maxY)/2;
-    segs = segs.map(s=>shiftSeg(s,-cx,-cy));
+$("fit").addEventListener("click", ()=>{
+  if(playback.length){
+    const segs = playback.map(s=>({a:s.a,b:s.b}));
+    fitViewToSegments(segs);
+  } else {
+    fitViewToSegments(previewSegs);
   }
-  previewSegs = segs.map(s=>({a:s.a,b:s.b}));
-  playback=[];
-  moves=[];
-  lastDAT="";
-  $("download").disabled=true;
-  fitViewToSegments(previewSegs);
   draw();
 });
 
-$("play").addEventListener("click", ()=>{ playing=true; });
+$("hideRapids").addEventListener("change", ()=>draw());
+$("tracedMode").addEventListener("change", ()=>draw());
+$("origin").addEventListener("change", ()=>{
+  if(!dxfParsed) return;
+  const opts=readOpts();
+  let segs = applyOriginShift(extractSegments(dxfParsed), opts.origin);
+  previewSegs = segs.map(s=>({a:s.a,b:s.b}));
+  playback=[]; moves=[]; lastDAT="";
+  $("download").disabled=true;
+  $("play").disabled=true; $("pause").disabled=true; $("scrub").disabled=true;
+  fitViewToSegments(previewSegs);
+  setTopStatus("Origin changed (preview updated)");
+  setStats("Rebuild toolpath to update the .dat output.");
+  draw();
+});
+
+$("play").addEventListener("click", ()=>{ if(playback.length) playing=true; });
 $("pause").addEventListener("click", ()=>{ playing=false; });
 $("scrub").addEventListener("input", ()=>{ playing=false; draw(); });
 
@@ -866,7 +786,6 @@ function tick(){
   requestAnimationFrame(tick);
 }
 
-// boot
 function init(){
   resize();
   const r=canvas.getBoundingClientRect();
