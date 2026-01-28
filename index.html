@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>DXF → DAT + Toolpath Sim (V1)</title>
+  <title>DXF → DAT + Toolpath Sim (Inches)</title>
   <style>
     :root { --bg:#0b0c10; --panel:#12141a; --text:#e9eef6; --muted:#9aa4b2; --line:#2a2f3a; }
     body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); }
-    header { padding:14px 16px; border-bottom:1px solid var(--line); background:rgba(18,20,26,0.8); position:sticky; top:0; backdrop-filter: blur(10px); }
+    header { padding:14px 16px; border-bottom:1px solid var(--line); background:rgba(18,20,26,0.85); position:sticky; top:0; backdrop-filter: blur(10px); }
     header h1 { margin:0; font-size:16px; font-weight:650; }
     header p { margin:6px 0 0; font-size:12px; color:var(--muted); }
 
-    .wrap { display:grid; grid-template-columns: 380px 1fr; gap:14px; padding:14px; }
+    .wrap { display:grid; grid-template-columns: 390px 1fr; gap:14px; padding:14px; }
     .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px; }
     .card h2 { margin:0 0 10px; font-size:13px; color:var(--muted); font-weight:650; }
     label { display:block; font-size:12px; color:var(--muted); margin:10px 0 6px; }
@@ -30,7 +30,7 @@
     button:disabled { opacity:0.45; cursor:not-allowed; }
 
     .viewer { position:relative; min-height: 520px; }
-    canvas { width:100%; height: calc(100vh - 120px); min-height:520px; display:block; border-radius:14px; background:#07080b; border:1px solid var(--line); }
+    canvas { width:100%; height: calc(100vh - 130px); min-height:520px; display:block; border-radius:14px; background:#07080b; border:1px solid var(--line); }
     .hud {
       position:absolute; left:12px; top:12px; right:12px;
       display:flex; justify-content:space-between; gap:10px; pointer-events:none;
@@ -39,13 +39,15 @@
     .hud .pill { background:rgba(18,20,26,0.7); border:1px solid var(--line); border-radius:999px; padding:6px 10px; }
     .slider { display:flex; align-items:center; gap:10px; margin-top:12px; }
     input[type="range"] { width:100%; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
+    .note { color: var(--muted); font-size:12px; line-height:1.4; margin:10px 0 0; }
+    .pillwarn { display:inline-block; padding:3px 8px; border-radius:999px; border:1px solid #4a3a1a; background:rgba(255,190,90,0.08); color:#ffcf8a; }
   </style>
 </head>
 <body>
   <header>
-    <h1>DXF → DAT + Toolpath Simulation (V1)</h1>
-    <p>Centerline toolpath, 1/4&quot; endmill, no cutter comp. Sim = toolpath verify only (no stock removal).</p>
+    <h1>DXF → DAT + Toolpath Simulation (Inches)</h1>
+    <p>Centerline toolpath, 1/4" endmill, no cutter comp. Exports <span class="mono">output.dat</span> in inches (<span class="mono">G20</span>).</p>
   </header>
 
   <div class="wrap">
@@ -57,9 +59,14 @@
 
       <label>Units</label>
       <select id="units">
-        <option value="G20">Inch (G20)</option>
+        <option value="G20" selected>Inch (G20)</option>
         <option value="G21">mm (G21)</option>
       </select>
+
+      <label style="display:flex; gap:10px; align-items:center; margin-top:10px;">
+        <input type="checkbox" id="centerXY" checked />
+        Center part at X0 Y0 (always)
+      </label>
 
       <div class="row">
         <div>
@@ -98,17 +105,13 @@
       </div>
 
       <p class="mono" id="status" style="margin:10px 0 0; color:var(--muted);">Status: idle</p>
-      <p class="mono" id="stats" style="margin:6px 0 0; color:var(--muted);">Moves: — | Length: —</p>
+      <p class="mono" id="stats" style="margin:6px 0 0; color:var(--muted);">Elements: — | Length: —</p>
+      <p class="mono" id="warn" style="margin:6px 0 0; color:var(--muted);"></p>
 
-      <hr style="border:0;border-top:1px solid var(--line); margin:12px 0;" />
-      <details>
-        <summary style="cursor:pointer; color:var(--muted); font-size:12px;">Limits (read once)</summary>
-        <ul style="margin:8px 0 0; color:var(--muted); font-size:12px; line-height:1.4;">
-          <li>V1 supports LINE + (LW)POLYLINE straight segments. Arcs/bulge are ignored.</li>
-          <li>Each DXF segment is cut individually (more rapids). That’s fine for V1 verify.</li>
-          <li>No offsets, no tabs, no depth stepping.</li>
-        </ul>
-      </details>
+      <p class="note">
+        <span class="pillwarn">Important</span> If your DXF contains SPLINE/ELLIPSE, this app will warn you (it won’t silently drop it).
+        For CNC reliability, export DXF with splines exploded to polylines/arcs if needed.
+      </p>
     </div>
 
     <div class="viewer card">
