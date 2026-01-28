@@ -3,74 +3,45 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>DXF → DAT + Toolpath Sim (Generic CNC / Inches)</title>
+  <title>DXF → DAT + Toolpath Simulation (Generic CNC / Inches)</title>
   <style>
-    :root{
-      --bg:#0b0c10; --panel:#12141a; --panel2:#0f1117; --text:#e9eef6;
-      --muted:#9aa4b2; --line:#2a2f3a; --good:#53d769; --warn:#ffcc00; --bad:#ff5b5b;
-    }
+    :root { --bg:#0b0c10; --panel:#12141a; --text:#e9eef6; --muted:#9aa4b2; --line:#2a2f3a; }
     body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); }
-    header {
-      padding:14px 16px; border-bottom:1px solid var(--line);
-      background:rgba(18,20,26,0.85); position:sticky; top:0; backdrop-filter: blur(10px); z-index:10;
-    }
-    header h1 { margin:0; font-size:16px; font-weight:700; }
+    header { padding:14px 16px; border-bottom:1px solid var(--line); background:rgba(18,20,26,0.8); position:sticky; top:0; backdrop-filter: blur(10px); z-index:10; }
+    header h1 { margin:0; font-size:16px; font-weight:650; }
     header p { margin:6px 0 0; font-size:12px; color:var(--muted); line-height:1.35; }
 
     .wrap { display:grid; grid-template-columns: 420px 1fr; gap:14px; padding:14px; }
     .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px; }
-    .card h2 { margin:0 0 10px; font-size:13px; color:var(--muted); font-weight:700; }
-
+    .card h2 { margin:0 0 10px; font-size:13px; color:var(--muted); font-weight:650; }
     label { display:block; font-size:12px; color:var(--muted); margin:10px 0 6px; }
     input, select, button { font:inherit; }
-    input[type="number"], input[type="text"]{
+    input[type="number"], input[type="text"], select {
       width:100%; padding:10px; border-radius:12px; border:1px solid var(--line);
-      background:var(--panel2); color:var(--text);
+      background:#0f1117; color:var(--text);
     }
     input[type="file"] { width:100%; }
-
     .row { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
     .btnrow { display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
     button {
       padding:10px 12px; border-radius:12px; border:1px solid var(--line);
-      background:var(--panel2); color:var(--text); cursor:pointer;
+      background:#0f1117; color:var(--text); cursor:pointer;
     }
     button:disabled { opacity:0.45; cursor:not-allowed; }
 
-    .toggle {
-      display:flex; gap:10px; align-items:center; margin-top:10px;
-      background: rgba(255,255,255,0.03); border:1px solid var(--line);
-      padding:10px; border-radius:12px;
-    }
-    .toggle input { transform: scale(1.05); }
-    .toggle span { font-size:12px; color:var(--muted); line-height:1.25; }
-
     .viewer { position:relative; min-height: 520px; }
-    canvas {
-      width:100%; height: calc(100vh - 120px); min-height:520px;
-      display:block; border-radius:14px; background:#07080b; border:1px solid var(--line);
-    }
-
+    canvas { width:100%; height: calc(100vh - 120px); min-height:520px; display:block; border-radius:14px; background:#07080b; border:1px solid var(--line); }
     .hud {
       position:absolute; left:12px; top:12px; right:12px;
       display:flex; justify-content:space-between; gap:10px; pointer-events:none;
       font-size:12px; color:var(--muted);
     }
     .hud .pill { background:rgba(18,20,26,0.7); border:1px solid var(--line); border-radius:999px; padding:6px 10px; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
-    .tiny { font-size:11px; color:var(--muted); line-height:1.35; margin-top:10px; }
-    .kv { display:grid; grid-template-columns: 120px 1fr; gap:6px 10px; margin-top:10px; }
-    .badge { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); border-radius:999px; padding:4px 10px; font-size:11px; color:var(--muted); background:rgba(255,255,255,0.03); }
-    .badge.good{ border-color: rgba(83,215,105,0.35); color: rgba(83,215,105,0.95); }
-    .badge.warn{ border-color: rgba(255,204,0,0.35); color: rgba(255,204,0,0.95); }
-    .badge.bad{ border-color: rgba(255,91,91,0.35); color: rgba(255,91,91,0.95); }
     .slider { display:flex; align-items:center; gap:10px; margin-top:12px; }
     input[type="range"] { width:100%; }
-
-    .help {
-      margin-top:10px; padding:10px; border-radius:12px; border:1px solid var(--line);
-      background: rgba(255,255,255,0.02);
-    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
+    .tiny { font-size:11px; color:var(--muted); line-height:1.35; margin-top:8px; }
+    .warn { color:#ffcc00; }
   </style>
 </head>
 <body>
@@ -78,7 +49,7 @@
     <h1>DXF → DAT + Toolpath Simulation (Generic CNC / Inches)</h1>
     <p>
       Outputs <span class="mono">G20</span> inch G-code and saves as <span class="mono">.dat</span>.
-      Continuous cuts per chained path (not plunge/retract per segment). Pan/zoom, Fit View, Hide Rapids.
+      Supports LINE / ARC / CIRCLE / (LW)POLYLINE incl. bulge arcs. Origin centered at part midpoint.
     </p>
   </header>
 
@@ -89,10 +60,15 @@
       <label>DXF file</label>
       <input type="file" id="file" accept=".dxf" />
 
-      <div class="toggle">
+      <label style="display:flex; gap:10px; align-items:center; margin-top:12px;">
         <input type="checkbox" id="centerXY" checked />
-        <span><b>Center part at X0 Y0</b><br/>Origin is always in the middle of the geometry.</span>
-      </div>
+        Center part at X0 Y0 (origin in the middle)
+      </label>
+
+      <label style="display:flex; gap:10px; align-items:center; margin-top:10px;">
+        <input type="checkbox" id="hideRapids" />
+        Hide rapids (display only)
+      </label>
 
       <div class="row">
         <div>
@@ -100,7 +76,7 @@
           <input type="number" id="safeZ" value="0.50" step="0.01" />
         </div>
         <div>
-          <label>Cut Z (in)</label>
+          <label>Cut Z (in) <span class="warn">(should be negative)</span></label>
           <input type="number" id="cutZ" value="-0.0625" step="0.0005" />
         </div>
       </div>
@@ -118,33 +94,12 @@
 
       <div class="row">
         <div>
-          <label>Tool diameter (in)</label>
-          <input type="number" id="toolDiam" value="0.25" step="0.01" />
-        </div>
-        <div>
           <label>Chain tolerance (in)</label>
           <input type="number" id="chainTol" value="0.001" step="0.0005" />
         </div>
-      </div>
-
-      <div class="toggle">
-        <input type="checkbox" id="mergeCollinear" checked />
-        <span><b>Merge collinear segments (safe)</b><br/>Reduces huge traced files without changing shape.</span>
-      </div>
-
-      <div class="toggle">
-        <input type="checkbox" id="simplifyOn" />
-        <span><b>Simplify line-only paths (optional)</b><br/>Uses tolerance below. Leave OFF if you want “exact”.</span>
-      </div>
-
-      <div class="row">
         <div>
-          <label>Simplify tolerance (in)</label>
-          <input type="number" id="simplifyTol" value="0.003" step="0.001" />
-        </div>
-        <div>
-          <label>Arc draw step (deg)</label>
-          <input type="number" id="arcStepDeg" value="5" step="1" />
+          <label>Tool diameter (in)</label>
+          <input type="number" id="toolDiam" value="0.25" step="0.01" />
         </div>
       </div>
 
@@ -157,51 +112,21 @@
         <button id="fit" disabled>Fit View</button>
       </div>
 
-      <div class="toggle">
-        <input type="checkbox" id="hideRapids" />
-        <span><b>Hide rapids in display</b><br/>Removes dashed clutter in simulation view.</span>
-      </div>
-
       <div class="slider">
         <button id="play" disabled>Play</button>
         <button id="pause" disabled>Pause</button>
         <input type="range" id="scrub" min="0" max="1" step="0.001" value="0" disabled />
       </div>
 
-      <div class="row">
-        <div>
-          <label>Playback speed</label>
-          <input type="number" id="speed" value="1.0" step="0.1" />
-        </div>
-        <div>
-          <label>Link Z (optional)</label>
-          <input type="number" id="linkZ" value="0.10" step="0.01" />
-        </div>
-      </div>
-
-      <div class="help">
-        <div class="mono" id="status">Status: idle</div>
-        <div style="margin-top:8px; display:flex; gap:10px; flex-wrap:wrap;">
-          <span class="badge" id="badgeComplex">Complexity: —</span>
-          <span class="badge" id="badgeZ">Z: —</span>
-          <span class="badge" id="badgeUnits">Units: G20</span>
-        </div>
-
-        <div class="kv mono" id="stats">
-          <div>Entities</div><div>—</div>
-          <div>Paths</div><div>—</div>
-          <div>Segments</div><div>—</div>
-          <div>DAT lines</div><div>—</div>
-          <div>Path length</div><div>—</div>
-        </div>
-      </div>
+      <p class="mono" id="status" style="margin:10px 0 0; color:var(--muted);">Status: idle</p>
+      <p class="mono" id="stats" style="margin:6px 0 0; color:var(--muted);">Paths: — | Segments: — | DAT lines: —</p>
 
       <div class="tiny">
-        Controls:
+        Notes:
         <ul style="margin:6px 0 0; padding-left:16px;">
-          <li><b>Mouse wheel</b> = zoom (to cursor), <b>drag</b> = pan.</li>
-          <li>Arcs output as <span class="mono">G2/G3</span> with <span class="mono">I/J</span> incremental centers.</li>
-          <li>This is toolpath verify (no stock removal).</li>
+          <li>Arcs output as <span class="mono">G2/G3</span> with <span class="mono">I/J</span> incremental center offsets.</li>
+          <li>Continuous cut per chained path (no plunge/retract per segment).</li>
+          <li>Pan = drag, Zoom = mousewheel.</li>
         </ul>
       </div>
     </div>
