@@ -1,22 +1,15 @@
 // NorrisCAM — DXF preview + simplified toolpath + USB-ready .NC output
-// Goals:
-// - DXF shows immediately on import
-// - Build Toolpath never silently fails (errors shown in UI + alert)
-// - Tolerant "traced art" toolpath (snap + simplify) for ±0.10" work
-// - Generic router G-code header/footer (G20/G90 + optional M3 S + M5/M30)
+// Fix: prevent empty/invalid paths from reaching ordering/building (was causing: undefined 'a')
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("c");
 const ctx = canvas.getContext("2d");
 
-let dxfText = null;
 let dxfParsed = null;
-
 let previewSegs = [];   // {a,b}
 let playback = [];      // sim segments
 let moves = [];
 let lastNC = "";
-
 let playing = false;
 
 const view = { scale: 60, ox: 0, oy: 0, dragging: false, lx: 0, ly: 0 };
@@ -37,10 +30,10 @@ function readOpts(){
     stepDown,
     feedXY: Number($("feedXY").value || 30),
     feedZ: Number($("feedZ").value || 20),
-    chainTol: Math.max(0.0005, Number($("chainTol").value || 0.02)),
     outPrec: Number($("outPrec").value || 0.01),
     snapGrid: Math.max(0.001, Number($("snapGrid").value || 0.02)),
     angleTolDeg: Math.max(1, Number($("angleTolDeg").value || 12)),
+    chainTol: Math.max(0.0005, Number($("chainTol").value || 0.02)),
     toolComment: $("toolComment").value || "(T1 - 1/4 endmill, centerline, no comp)",
     spindleOn: $("spindleOn").checked,
     spindleS: Math.max(0, Number($("spindleS").value || 12000)),
@@ -69,7 +62,6 @@ function collinear(a,b,c,eps){
 
 // ---------- Bulletproof point normalization ----------
 function xyOf(pt){
-  // Accept {x,y}, [x,y], {0:x,1:y}, nested {point:{x,y}}, or anything that has numeric x/y
   if(!pt) return null;
 
   if(Array.isArray(pt) && pt.length >= 2 && isFinite(pt[0]) && isFinite(pt[1])){
@@ -109,7 +101,7 @@ function extractSegments(dxf){
       const a2=degToRad(Number(e.endAngle));
       const a={x:c.x+r*Math.cos(a1), y:c.y+r*Math.sin(a1)};
       const b={x:c.x+r*Math.cos(a2), y:c.y+r*Math.sin(a2)};
-      out.push({kind:"arc", a, b, c, r, ccw:true, a1, a2});
+      out.push({kind:"arc", a, b, c, r, ccw:true});
       continue;
     }
 
@@ -215,41 +207,52 @@ function applyOriginShift(segs, origin){
   return segs.map(s => shiftSeg(s, dx, dy));
 }
 
-// -------- Toolpath (snap + simplify, line-only, tolerant) --------
+// -------- Toolpath (snap + simplify, tolerant) --------
 function mergeCollinear(pathSegs, tol){
-  if(pathSegs.length<2) return pathSegs.slice();
   const out=[];
+  if(!Array.isArray(pathSegs) || pathSegs.length===0) return out;
+
   const eps=Math.max(1e-12, tol*tol);
   let i=0;
+
   while(i<pathSegs.length){
     const s=pathSegs[i];
+    if(!s || !s.a || !s.b) { i++; continue; }
+
     let a=s.a, b=s.b;
+    if(!isFinite(a.x)||!isFinite(a.y)||!isFinite(b.x)||!isFinite(b.y)){ i++; continue; }
     if(samePt(a,b,tol)){ i++; continue; }
+
     let j=i+1;
     while(j<pathSegs.length){
       const n=pathSegs[j];
+      if(!n || !n.a || !n.b) break;
       if(!samePt(b, n.a, tol)) break;
       if(samePt(n.a,n.b,tol)){ j++; continue; }
       if(!collinear(a,b,n.b,eps)) break;
       b=n.b; j++;
     }
-    out.push({kind:"line", a,b});
+
+    out.push({kind:"line", a, b});
     i=j;
   }
   return out;
 }
 
 function rebuildTracedPaths(segs, snapGrid, angleTolDeg, outPrec){
+  const minLen = Math.max(outPrec*0.9, snapGrid*0.5);
+
   const lines = segs
-    .filter(s=>s.kind==="line" && s.a && s.b)
+    .filter(s=>s && s.kind==="line" && s.a && s.b)
     .map(s=>({kind:"line", a:snapPoint(s.a,snapGrid), b:snapPoint(s.b,snapGrid)}))
-    .filter(s=>isFinite(s.a.x)&&isFinite(s.a.y)&&isFinite(s.b.x)&&isFinite(s.b.y))
-    .filter(s=>dist(s.a,s.b) >= Math.max(outPrec*0.9, snapGrid*0.5));
+    .filter(s=>
+      isFinite(s.a.x)&&isFinite(s.a.y)&&isFinite(s.b.x)&&isFinite(s.b.y) &&
+      dist(s.a,s.b) >= minLen
+    );
 
   const tol = snapGrid * 0.55;
   const angTol = degToRad(angleTolDeg);
 
-  // Build adjacency on start points
   const map=new Map();
   const k=(p)=>`${Math.round(p.x/snapGrid)},${Math.round(p.y/snapGrid)}`;
   for(let i=0;i<lines.length;i++){
@@ -277,6 +280,7 @@ function rebuildTracedPaths(segs, snapGrid, angleTolDeg, outPrec){
       for(const idx of cand){
         if(used[idx]) continue;
         const s=lines[idx];
+        if(!s || !s.a || !s.b) continue;
         if(!samePt(end, s.a, tol)) continue;
 
         const d1=angle(s.a,s.b);
@@ -290,31 +294,51 @@ function rebuildTracedPaths(segs, snapGrid, angleTolDeg, outPrec){
       cur=lines[best];
     }
 
-    paths.push({segments: mergeCollinear(chain, snapGrid)});
+    const merged = mergeCollinear(chain, snapGrid);
+    if(merged.length) paths.push({segments: merged});
   }
 
-  return paths;
+  // Final sanity filter: no empties, no bad coords
+  return paths.filter(p =>
+    p && Array.isArray(p.segments) && p.segments.length &&
+    p.segments.every(s => s && s.a && s.b && isFinite(s.a.x)&&isFinite(s.a.y)&&isFinite(s.b.x)&&isFinite(s.b.y))
+  );
 }
 
 function orderPathsNearest(paths){
-  if(paths.length<=1) return paths;
-  const remaining = paths.slice();
+  const clean = (paths||[]).filter(p => p?.segments?.length);
+  if(clean.length<=1) return clean;
+
+  const remaining = clean.slice();
   const ordered = [];
   let cur = remaining.shift();
   ordered.push(cur);
+
   let curPt = cur.segments[cur.segments.length-1].b;
 
   while(remaining.length){
-    let bestIdx=0, bestD=Infinity, flip=false;
+    let bestIdx=-1, bestD=Infinity, flip=false;
+
     for(let i=0;i<remaining.length;i++){
       const p=remaining[i];
-      const a=p.segments[0].a;
-      const b=p.segments[p.segments.length-1].b;
+      if(!p?.segments?.length) continue;
+
+      const first = p.segments[0];
+      const last  = p.segments[p.segments.length-1];
+      if(!first?.a || !last?.b) continue;
+
+      const a=first.a;
+      const b=last.b;
+
       const dA=dist(curPt,a);
       const dB=dist(curPt,b);
+
       if(dA<bestD){ bestD=dA; bestIdx=i; flip=false; }
       if(dB<bestD){ bestD=dB; bestIdx=i; flip=true; }
     }
+
+    if(bestIdx === -1) break; // nothing valid left
+
     cur = remaining.splice(bestIdx,1)[0];
     if(flip){
       cur.segments = cur.segments.slice().reverse().map(s => ({kind:"line", a:s.b, b:s.a}));
@@ -322,6 +346,7 @@ function orderPathsNearest(paths){
     ordered.push(cur);
     curPt = cur.segments[cur.segments.length-1].b;
   }
+
   return ordered;
 }
 
@@ -340,8 +365,11 @@ function buildMoves(paths, opts){
 
   for(const passZ of depths){
     for(const p of paths){
-      if(!p.segments?.length) continue;
-      const start=p.segments[0].a;
+      if(!p?.segments?.length) continue;
+
+      const startSeg = p.segments[0];
+      if(!startSeg?.a) continue;
+      const start = startSeg.a;
 
       if(dist(curXY, start) > 1e-12) m.push({type:"rapidXY", x:start.x, y:start.y});
       curXY = {x:start.x, y:start.y};
@@ -350,9 +378,11 @@ function buildMoves(paths, opts){
       m.push({type:"feedXY", f:opts.feedXY});
 
       for(const s of p.segments){
+        if(!s?.b) continue;
         m.push({type:"cutLine", x:s.b.x, y:s.b.y});
         curXY = {x:s.b.x, y:s.b.y};
       }
+
       m.push({type:"retract", z:opts.safeZ});
     }
   }
@@ -521,7 +551,6 @@ function drawPreviewGeometry(){
 function drawToolpath(){
   if(!playback.length) return;
 
-  // rapids
   ctx.save();
   ctx.strokeStyle="rgba(122,167,255,0.55)";
   ctx.lineWidth=2;
@@ -533,7 +562,6 @@ function drawToolpath(){
   }
   ctx.restore();
 
-  // cuts
   ctx.save();
   ctx.strokeStyle="rgba(255,122,122,0.9)";
   ctx.lineWidth=2;
@@ -600,11 +628,11 @@ $("file").addEventListener("change", async (e)=>{
   if(!f) return;
 
   setTopStatus(`Loading ${f.name}…`);
-  dxfText = await f.text();
 
   try{
+    const text = await f.text();
     const parser=new window.DxfParser();
-    dxfParsed = parser.parseSync(dxfText);
+    dxfParsed = parser.parseSync(text);
   }catch(err){
     console.error(err);
     alert("DXF parse failed. Try exporting as R12 / ASCII DXF.");
@@ -614,6 +642,7 @@ $("file").addEventListener("change", async (e)=>{
 
   const opts=readOpts();
   let segs = extractSegments(dxfParsed);
+
   if(!segs.length){
     alert("No usable geometry extracted. Re-export DXF as R12/ASCII or explode polylines.");
     setTopStatus("No geometry extracted");
@@ -649,13 +678,13 @@ $("buildToolpath").addEventListener("click", ()=>{
     let segs = extractSegments(dxfParsed);
     segs = applyOriginShift(segs, opts.origin);
 
-    const paths = orderPathsNearest(
-      rebuildTracedPaths(segs, opts.snapGrid, opts.angleTolDeg, opts.outPrec)
-    );
+    const rawPaths = rebuildTracedPaths(segs, opts.snapGrid, opts.angleTolDeg, opts.outPrec);
+    const paths = orderPathsNearest(rawPaths);
 
     if(!paths.length){
-      alert("No paths created. This DXF might be curves-only (arcs/splines). Try re-exporting as polylines.");
+      alert("No paths created (everything got simplified away). Try:\n- lower Snap Grid (e.g. 0.01)\n- lower Output Precision (e.g. 0.005)\n- increase Angle Tol (e.g. 20)");
       setTopStatus("Build produced 0 paths");
+      setStats("Build produced 0 valid paths.");
       return;
     }
 
@@ -677,7 +706,7 @@ $("buildToolpath").addEventListener("click", ()=>{
     console.error(err);
     setTopStatus("Build failed");
     setStats(`Build error: ${err?.message || String(err)}`);
-    alert(`Build failed:\n${err?.message || String(err)}\n\n(If you want, paste this message back to me.)`);
+    alert(`Build failed:\n${err?.message || String(err)}`);
   }
 });
 
