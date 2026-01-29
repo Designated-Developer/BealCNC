@@ -1,178 +1,414 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>NorrisCAM</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
 
 <style>
-body{
-  margin:0;
-  background:#0a1220;
-  color:#e8eefc;
-  font-family:system-ui,Segoe UI,Roboto,Arial;
-}
-.wrap{
-  display:grid;
-  grid-template-columns:380px 1fr;
-  gap:12px;
-  padding:12px;
-  height:100vh;
-}
-.card{
-  background:#0f1b2e;
-  border-radius:16px;
-  border:1px solid rgba(255,255,255,.08);
-  display:flex;
-  flex-direction:column;
-  overflow:hidden;
-}
-.brand{
-  display:flex;
-  align-items:center;
-  gap:12px;
-  padding:12px;
-  border-bottom:1px solid rgba(255,255,255,.08);
-}
-.logo{
-  width:42px;height:42px;
-  border-radius:12px;
-  background:#7dd3fc;
-  color:#07101d;
-  font-weight:900;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-}
-.brand h1{margin:0;font-size:18px;}
-.sub{font-size:12px;color:#9bb0d4}
+  :root{
+    --bg:#07101d;
+    --panel:#0b172a;
+    --panel2:#0a1424;
+    --stroke:rgba(255,255,255,.10);
+    --stroke2:rgba(255,255,255,.07);
+    --text:#e9f1ff;
+    --muted:#9fb2d6;
+    --accent:#7dd3fc;
+    --accent2:#60a5fa;
+    --danger:#fb7185;
+    --ok:#34d399;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:linear-gradient(180deg,#050a14,#07101d 50%,#050a14);
+    color:var(--text);
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;
+    overflow:hidden; /* critical: page never scrolls */
+  }
 
-.left{
-  padding:12px;
-  gap:10px;
-}
-.fileRow input{width:100%}
-button{
-  border-radius:12px;
-  padding:10px;
-  font-weight:800;
-  border:none;
-  cursor:pointer;
-}
-.primary{background:#7dd3fc;color:#07101d}
-.ghost{
-  background:rgba(255,255,255,.08);
-  color:#e8eefc;
-  border:1px solid rgba(255,255,255,.1);
-}
-.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .app{
+    height:100vh;
+    display:grid;
+    grid-template-columns:380px 1fr;
+    gap:12px;
+    padding:12px;
+  }
+  .card{
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid var(--stroke);
+    border-radius:18px;
+    overflow:hidden;
+    min-height:0;
+  }
 
-.section{
-  border:1px solid rgba(255,255,255,.08);
-  border-radius:14px;
-  padding:10px;
-}
-label{font-size:12px;color:#9bb0d4}
-input,select{
-  width:100%;
-  padding:8px;
-  border-radius:10px;
-  border:1px solid rgba(255,255,255,.1);
-  background:#0a1220;
-  color:#e8eefc;
-}
+  /* LEFT */
+  .left{display:flex;flex-direction:column;min-height:0}
+  .brand{
+    display:flex;align-items:center;gap:12px;
+    padding:14px 14px;
+    border-bottom:1px solid var(--stroke2);
+  }
+  .logoMark{
+    width:42px;height:42px;border-radius:14px;
+    background:radial-gradient(circle at 30% 30%,#b9f2ff,#7dd3fc 45%,#3b82f6 100%);
+    display:grid;place-items:center;
+    box-shadow:0 10px 30px rgba(0,0,0,.3);
+  }
+  .logoMark svg{width:30px;height:30px}
+  .brand h1{margin:0;font-size:18px;letter-spacing:.2px}
+  .sub{color:var(--muted);font-size:12px;margin-top:2px}
 
-.right{
-  display:grid;
-  grid-template-columns:1fr 300px;
-}
-canvas{
-  width:100%;
-  height:100%;
-  background:#020617;
-}
-.ncBox{
-  flex:1;
-  overflow:auto;
-  font-family:monospace;
-  font-size:12px;
-  padding:10px;
-}
-.line{white-space:pre}
-.hi{
-  background:rgba(125,211,252,.25);
-  border-radius:6px;
-}
-.toolbar{
-  display:flex;
-  gap:6px;
-  padding:8px;
-  border-bottom:1px solid rgba(255,255,255,.08);
-}
+  .leftBody{
+    padding:12px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    min-height:0;
+  }
+
+  .tabs{
+    display:flex;
+    gap:8px;
+    padding:6px;
+    background:rgba(255,255,255,.04);
+    border:1px solid var(--stroke2);
+    border-radius:14px;
+  }
+  .tabBtn{
+    flex:1;
+    padding:10px 10px;
+    border:none;
+    border-radius:12px;
+    background:transparent;
+    color:var(--muted);
+    font-weight:800;
+    cursor:pointer;
+  }
+  .tabBtn.active{
+    background:rgba(125,211,252,.18);
+    color:var(--text);
+    border:1px solid rgba(125,211,252,.35);
+  }
+
+  .tabPane{display:none;gap:10px;flex-direction:column}
+  .tabPane.active{display:flex}
+
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+
+  .box{
+    border:1px solid var(--stroke2);
+    border-radius:14px;
+    padding:10px;
+    background:rgba(0,0,0,.15);
+  }
+
+  label{display:block;color:var(--muted);font-size:12px;margin-bottom:6px}
+  input,select{
+    width:100%;
+    padding:10px;
+    border-radius:12px;
+    border:1px solid rgba(255,255,255,.10);
+    background:rgba(0,0,0,.25);
+    color:var(--text);
+    outline:none;
+  }
+  input:focus,select:focus{border-color:rgba(125,211,252,.55)}
+
+  .fileInput{
+    width:100%;
+    padding:10px;
+    border-radius:12px;
+    border:1px dashed rgba(125,211,252,.4);
+    background:rgba(125,211,252,.06);
+  }
+
+  .actions{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+  }
+  button{
+    border:none;
+    padding:12px 12px;
+    border-radius:14px;
+    font-weight:900;
+    cursor:pointer;
+    letter-spacing:.2px;
+  }
+  .primary{
+    background:linear-gradient(180deg,#a5f3fc,#7dd3fc 55%,#60a5fa);
+    color:#04101c;
+    box-shadow:0 10px 30px rgba(0,0,0,.35);
+  }
+  .ghost{
+    background:rgba(255,255,255,.06);
+    color:var(--text);
+    border:1px solid rgba(255,255,255,.10);
+  }
+  button:disabled{opacity:.45;cursor:not-allowed}
+
+  .status{
+    display:flex;gap:10px;align-items:flex-start;
+    padding:10px 12px;
+    border-top:1px solid var(--stroke2);
+    color:var(--muted);
+    font-size:12px;
+    min-height:56px;
+  }
+  .dot{
+    width:10px;height:10px;border-radius:99px;margin-top:3px;
+    background:rgba(255,255,255,.25);
+  }
+  .dot.ok{background:var(--ok)}
+  .dot.bad{background:var(--danger)}
+  .dot.warn{background:#fbbf24}
+
+  /* RIGHT */
+  .right{
+    display:grid;
+    grid-template-columns:1fr 360px; /* NC pane on right */
+    min-height:0;
+  }
+  .canvasWrap{
+    position:relative;
+    min-height:0;
+  }
+  canvas{
+    width:100%;
+    height:100%;
+    display:block;
+    background:#020617;
+  }
+  .hud{
+    position:absolute;
+    left:12px;
+    top:12px;
+    padding:10px 12px;
+    border-radius:14px;
+    background:rgba(0,0,0,.35);
+    border:1px solid rgba(255,255,255,.10);
+    backdrop-filter: blur(6px);
+    font-size:12px;
+    color:var(--muted);
+  }
+  .hud b{color:var(--text)}
+  .keys{
+    position:absolute;
+    left:12px;
+    bottom:12px;
+    padding:10px 12px;
+    border-radius:14px;
+    background:rgba(0,0,0,.35);
+    border:1px solid rgba(255,255,255,.10);
+    backdrop-filter: blur(6px);
+    font-size:12px;
+    color:var(--muted);
+  }
+
+  .ncPane{
+    display:flex;
+    flex-direction:column;
+    min-height:0;
+    border-left:1px solid var(--stroke2);
+    background:rgba(0,0,0,.08);
+  }
+  .ncToolbar{
+    display:flex;
+    gap:8px;
+    padding:10px;
+    border-bottom:1px solid var(--stroke2);
+  }
+  .smallBtn{
+    padding:10px 10px;
+    border-radius:12px;
+    font-weight:900;
+    background:rgba(255,255,255,.06);
+    color:var(--text);
+    border:1px solid rgba(255,255,255,.10);
+  }
+  .smallBtn:disabled{opacity:.45}
+
+  .ncBox{
+    flex:1;
+    min-height:0;
+    overflow:auto;
+    padding:10px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:12px;
+    line-height:1.35;
+    scroll-behavior:auto;
+  }
+  .row{
+    display:grid;
+    grid-template-columns:56px 1fr;
+    gap:10px;
+    padding:3px 6px;
+    border-radius:10px;
+  }
+  .ln{color:rgba(255,255,255,.45)}
+  .code{white-space:pre}
+  .hi{
+    background:rgba(125,211,252,.18);
+    border:1px solid rgba(125,211,252,.25);
+  }
+
 </style>
 </head>
 
 <body>
-<div class="wrap">
+  <div class="app">
+    <!-- LEFT -->
+    <div class="card left">
+      <div class="brand">
+        <div class="logoMark" title="NorrisCAM">
+          <!-- Simple inline “cool logo” -->
+          <svg viewBox="0 0 64 64" fill="none">
+            <path d="M14 40 L28 18 L40 38 L50 22" stroke="#04101c" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="50" cy="22" r="5.5" fill="#04101c"/>
+          </svg>
+        </div>
+        <div>
+          <h1>NorrisCAM</h1>
+          <div class="sub">DXF → toolpath → USB .DAT • step preview (S/B)</div>
+        </div>
+      </div>
 
-  <!-- LEFT -->
-  <div class="card left">
-    <div class="brand">
-      <div class="logo">NC</div>
-      <div>
-        <h1>NorrisCAM</h1>
-        <div class="sub">DXF → Toolpath → USB .DAT</div>
+      <div class="leftBody">
+        <input id="file" class="fileInput" type="file" accept=".dxf" />
+
+        <div class="tabs">
+          <button id="tabMain" class="tabBtn active" type="button">Main</button>
+          <button id="tabOptions" class="tabBtn" type="button">Options</button>
+        </div>
+
+        <div id="paneMain" class="tabPane active">
+          <div class="actions">
+            <button id="buildToolpath" class="primary" disabled>Build Toolpath</button>
+            <button id="exportDat" class="ghost" disabled>Export .dat</button>
+          </div>
+
+          <div class="box">
+            <div class="row2">
+              <div>
+                <label>Spindle RPM</label>
+                <input id="spindleRPM" type="number" value="12000" min="0" step="100">
+              </div>
+              <div>
+                <label>Origin</label>
+                <select id="origin">
+                  <option value="center" selected>Center of part</option>
+                  <option value="ll">Lower-left</option>
+                  <option value="lr">Lower-right</option>
+                  <option value="ul">Upper-left</option>
+                  <option value="ur">Upper-right</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="row3" style="margin-top:10px">
+              <div>
+                <label>Safe Z (in)</label>
+                <input id="safeZ" type="number" value="0.5" step="0.01">
+              </div>
+              <div>
+                <label>Total Depth (in)</label>
+                <input id="cutZ" type="number" value="0.0625" step="0.001">
+              </div>
+              <div>
+                <label>Stepdown (in)</label>
+                <input id="stepDown" type="number" value="0.0625" step="0.001">
+              </div>
+            </div>
+
+            <div class="row2" style="margin-top:10px">
+              <div>
+                <label>Feed XY (ipm)</label>
+                <input id="feedXY" type="number" value="30" step="1">
+              </div>
+              <div>
+                <label>Feed Z (ipm)</label>
+                <input id="feedZ" type="number" value="20" step="1">
+              </div>
+            </div>
+
+            <div style="margin-top:10px">
+              <label>Tool comment line</label>
+              <input id="toolComment" type="text" value="(T1 - 1/4 endmill, centerline, no comp)">
+            </div>
+          </div>
+        </div>
+
+        <div id="paneOptions" class="tabPane">
+          <div class="box">
+            <div class="row2">
+              <div>
+                <label>Tracing / output tolerance (in)</label>
+                <input id="outPrec" type="number" value="0.01" step="0.001">
+              </div>
+              <div>
+                <label>Snap grid (in)</label>
+                <input id="snapGrid" type="number" value="0.02" step="0.001">
+              </div>
+            </div>
+
+            <div class="row2" style="margin-top:10px">
+              <div>
+                <label>Angle tolerance (deg)</label>
+                <input id="angleTolDeg" type="number" value="14" step="1">
+              </div>
+              <div>
+                <label>Chain tolerance (in)</label>
+                <input id="chainTol" type="number" value="0.02" step="0.001">
+              </div>
+            </div>
+
+            <div style="margin-top:10px;color:var(--muted);font-size:12px">
+              Tip: for “±0.10″ student stuff”, increase <b>outPrec</b> to 0.02–0.05 and <b>snapGrid</b> to 0.02–0.05.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="status">
+        <div id="statusDot" class="dot warn"></div>
+        <div>
+          <div id="topStatus" style="color:var(--text);font-weight:900">Idle</div>
+          <div id="stats">Import a DXF to begin.</div>
+        </div>
       </div>
     </div>
 
-    <div class="fileRow">
-      <input id="file" type="file" accept=".dxf">
-    </div>
-
-    <div class="actions">
-      <button id="build" class="primary" disabled>Build Toolpath</button>
-      <button id="export" class="ghost" disabled>Export .dat</button>
-    </div>
-
-    <div class="section">
-      <label>Spindle Speed (RPM)</label>
-      <input id="spindle" type="number" value="12000">
-    </div>
-
-    <div class="section">
-      <label>Feed XY (ipm)</label>
-      <input id="feedXY" type="number" value="30">
-      <label>Feed Z (ipm)</label>
-      <input id="feedZ" type="number" value="20">
-    </div>
-
-    <div class="section">
-      <label>Safe Z (in)</label>
-      <input id="safeZ" type="number" step="0.01" value="0.5">
-      <label>Cut Depth (in)</label>
-      <input id="cutZ" type="number" step="0.001" value="0.0625">
-    </div>
-  </div>
-
-  <!-- RIGHT -->
-  <div class="card right">
-    <div>
-      <canvas id="c"></canvas>
-    </div>
-    <div style="display:flex;flex-direction:column">
-      <div class="toolbar">
-        <button id="back" class="ghost" disabled>B</button>
-        <button id="step" class="ghost" disabled>S</button>
-        <button id="play" class="ghost" disabled>▶</button>
-        <button id="pause" class="ghost" disabled>⏸</button>
+    <!-- RIGHT -->
+    <div class="card right">
+      <div class="canvasWrap">
+        <canvas id="c"></canvas>
+        <div class="hud">
+          <div><b>Preview:</b> DXF (blue) + Toolpath (red cuts / dashed rapids)</div>
+          <div><b>Build</b> generates code; <b>Step</b> reveals path + code together.</div>
+        </div>
+        <div class="keys">
+          <div><b>S</b> step forward • <b>B</b> back • <b>Space</b> play/pause</div>
+          <div>Mouse wheel zoom • drag pan</div>
+        </div>
       </div>
-      <div id="ncBox" class="ncBox"></div>
+
+      <div class="ncPane">
+        <div class="ncToolbar">
+          <button id="backBtn" class="smallBtn" disabled>B Back</button>
+          <button id="stepBtn" class="smallBtn" disabled>S Step</button>
+          <button id="playBtn" class="smallBtn" disabled>▶ Play</button>
+          <button id="pauseBtn" class="smallBtn" disabled>⏸ Pause</button>
+        </div>
+        <div id="ncBox" class="ncBox"></div>
+      </div>
     </div>
   </div>
 
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
-<script src="app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
