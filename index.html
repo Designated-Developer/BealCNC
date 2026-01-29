@@ -255,7 +255,6 @@
     background:rgba(125,211,252,.18);
     border:1px solid rgba(125,211,252,.25);
   }
-
 </style>
 </head>
 
@@ -265,7 +264,6 @@
     <div class="card left">
       <div class="brand">
         <div class="logoMark" title="NorrisCAM">
-          <!-- Simple inline “cool logo” -->
           <svg viewBox="0 0 64 64" fill="none">
             <path d="M14 40 L28 18 L40 38 L50 22" stroke="#04101c" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
             <circle cx="50" cy="22" r="5.5" fill="#04101c"/>
@@ -370,6 +368,73 @@
               Tip: for “±0.10″ student stuff”, increase <b>outPrec</b> to 0.02–0.05 and <b>snapGrid</b> to 0.02–0.05.
             </div>
           </div>
+
+          <!-- NEW: SCALE + TABLE + STOCK -->
+          <div class="box" style="margin-top:10px">
+            <div class="row2">
+              <div>
+                <label>Import scale (uniform)</label>
+                <input id="importScale" type="number" value="1" step="0.01" min="0.001">
+              </div>
+              <div>
+                <label>Show machine table</label>
+                <select id="showTable">
+                  <option value="on" selected>On</option>
+                  <option value="off">Off</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="row2" style="margin-top:10px">
+              <div>
+                <label>Table X travel (in) (back ↔ front)</label>
+                <input id="tableX" type="number" value="15" step="0.1" min="0">
+              </div>
+              <div>
+                <label>Table Y travel (in) (right ↔ left)</label>
+                <input id="tableY" type="number" value="20" step="0.1" min="0">
+              </div>
+            </div>
+
+            <div class="row2" style="margin-top:10px">
+              <div>
+                <label>Show stock</label>
+                <select id="showStock">
+                  <option value="off" selected>Off</option>
+                  <option value="on">On</option>
+                </select>
+              </div>
+              <div>
+                <label>Stock mode</label>
+                <select id="stockMode">
+                  <option value="bounds" selected>Fit to DXF bounds</option>
+                  <option value="fixed">Fixed size</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="row2" style="margin-top:10px">
+              <div>
+                <label>Stock padding (in)</label>
+                <input id="stockPad" type="number" value="0.25" step="0.01" min="0">
+              </div>
+              <div>
+                <label>Stock line width (px)</label>
+                <input id="stockLine" type="number" value="2" step="1" min="1">
+              </div>
+            </div>
+
+            <div class="row2" style="margin-top:10px">
+              <div>
+                <label>Fixed stock width (in)</label>
+                <input id="stockW" type="number" value="12" step="0.1" min="0">
+              </div>
+              <div>
+                <label>Fixed stock height (in)</label>
+                <input id="stockH" type="number" value="12" step="0.1" min="0">
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -387,7 +452,7 @@
       <div class="canvasWrap">
         <canvas id="c"></canvas>
         <div class="hud">
-          <div><b>Preview:</b> DXF (blue) + Toolpath (red cuts / dashed rapids)</div>
+          <div><b>Preview:</b> Machine table (dashed) + DXF (blue) + Toolpath (red / dashed rapids)</div>
           <div><b>Build</b> generates code; <b>Step</b> reveals path + code together.</div>
         </div>
         <div class="keys">
