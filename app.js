@@ -1,20 +1,14 @@
-// NorrisCAM — UPDATED (Footprint always works + Internal Scaling)
+// NorrisCAM — UPDATED (Rotate + Correct HOME dot)
 // Machine: General International i-Carver 40-915 XM1 CNC Router
-// Home: back-right
 // Travel: X = 15" (back↔front), Y = 20" (right↔left)
 // Workflow: center of stock (WCS 0,0 at stock center)
-// Behavior:
-// - Footprint overlay toggle (dashed faint gray) ALWAYS renders (HTML checkbox)
-// - DXF can be scaled inside the program (Scale % + Apply + Fit)
-// - View does NOT jump when building toolpath (no re-fit on build/step/play)
-// - Tool stays down for continuous chains; rapids retract to Safe Z
-// - NC reveal: reveal from line 1, pinned cursor @ 0.33, page never scrolls
+// NC preview: reveal from line 1, pinned cursor @ 0.33, page never scrolls
 
 const NC_PIN_FRACTION = 0.33;
 
 // Machine footprint (inches)
-const MACHINE_X_TRAVEL = 15; // X: back <-> front
-const MACHINE_Y_TRAVEL = 20; // Y: right <-> left
+const MACHINE_X_TRAVEL = 15;
+const MACHINE_Y_TRAVEL = 20;
 const MACHINE_CENTER_SHIFT = { x: MACHINE_X_TRAVEL / 2, y: MACHINE_Y_TRAVEL / 2 };
 
 const $ = (id) => document.getElementById(id);
@@ -24,9 +18,11 @@ const ctx = canvas.getContext("2d");
 
 // DXF + geometry state
 let dxfParsed = null;
-let baseGeomSegs = [];      // origin-shifted, UN-scaled segments
-let geomSegs = [];          // scaled segments (display + toolpath basis)
+let baseGeomSegs = [];     // origin-shifted, UN-transformed segments
+let geomSegs = [];         // transformed (rotate+scale) segments used for drawing/toolpath
+
 let currentScale = 1.0;
+let currentRotDeg = 0.0;
 
 // Toolpath + NC state
 let toolSegs = [];
@@ -115,13 +111,6 @@ function bounds(segs) {
   return { minX, minY, maxX, maxY };
 }
 
-function scaleSegs(segs, factor) {
-  return segs.map(s => ({
-    a: { x: s.a.x * factor, y: s.a.y * factor },
-    b: { x: s.b.x * factor, y: s.b.y * factor }
-  }));
-}
-
 function applyOriginShift(segs, origin) {
   const b = bounds(segs);
   const cx = (b.minX + b.maxX) / 2;
@@ -138,6 +127,23 @@ function applyOriginShift(segs, origin) {
     a: { x: s.a.x + dx, y: s.a.y + dy },
     b: { x: s.b.x + dx, y: s.b.y + dy }
   }));
+}
+
+function degToRad(d) { return d * Math.PI / 180; }
+
+function transformSegs(segs, scale, rotDeg) {
+  const th = degToRad(rotDeg);
+  const c = Math.cos(th), s = Math.sin(th);
+
+  // Rotate about origin (0,0), then scale
+  return segs.map(seg => {
+    const ra = { x: (seg.a.x * c - seg.a.y * s), y: (seg.a.x * s + seg.a.y * c) };
+    const rb = { x: (seg.b.x * c - seg.b.y * s), y: (seg.b.x * s + seg.b.y * c) };
+    return {
+      a: { x: ra.x * scale, y: ra.y * scale },
+      b: { x: rb.x * scale, y: rb.y * scale }
+    };
+  });
 }
 
 // ---------------- DXF parsing ----------------
@@ -305,8 +311,7 @@ canvas.addEventListener("wheel", (e) => {
 function drawMachineOverlay() {
   if (!$("showFootprint").checked) return;
 
-  // With center-zero workflow, machine bounds in part coords:
-  // X: [-X/2 .. +X/2], Y: [-Y/2 .. +Y/2]
+  // Center-zero workflow => bounds in part coords:
   const minX = -MACHINE_X_TRAVEL / 2;
   const maxX = +MACHINE_X_TRAVEL / 2;
   const minY = -MACHINE_Y_TRAVEL / 2;
@@ -332,42 +337,17 @@ function drawMachineOverlay() {
 
   ctx.setLineDash([]);
 
-  // Home marker: back-right (machine 0,0) corresponds to part (-X/2, -Y/2)
-  const home = w2s({ x: minX, y: minY });
-  ctx.fillStyle = "rgba(255,255,255,0.88)";
+  // ✅ HOME dot should be TOP-RIGHT (your request)
+  const home = w2s({ x: maxX, y: maxY });
+
+  ctx.fillStyle = "rgba(255,255,255,0.90)";
   ctx.beginPath();
   ctx.arc(home.x, home.y, 5, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.font = "bold 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  ctx.font = "800 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
   ctx.fillStyle = "rgba(255,255,255,0.70)";
-  ctx.fillText("HOME (Back Right)", home.x + 10, home.y - 8);
-
-  // axis hints (simple, not confusing)
-  const ax = { x: home.x + 110, y: home.y + 55 };
-
-  // +X goes back->front => draw arrow DOWN on screen
-  ctx.strokeStyle = "rgba(255,255,255,0.35)";
-  ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(ax.x, ax.y); ctx.lineTo(ax.x, ax.y + 40); ctx.stroke();
-  ctx.fillStyle = "rgba(255,255,255,0.55)";
-  ctx.beginPath();
-  ctx.moveTo(ax.x, ax.y + 40);
-  ctx.lineTo(ax.x - 5, ax.y + 30);
-  ctx.lineTo(ax.x + 5, ax.y + 30);
-  ctx.closePath(); ctx.fill();
-  ctx.fillText("+X (front)", ax.x + 10, ax.y + 38);
-
-  // +Y goes right->left => arrow LEFT
-  ctx.strokeStyle = "rgba(255,255,255,0.35)";
-  ctx.beginPath(); ctx.moveTo(ax.x, ax.y); ctx.lineTo(ax.x - 40, ax.y); ctx.stroke();
-  ctx.fillStyle = "rgba(255,255,255,0.55)";
-  ctx.beginPath();
-  ctx.moveTo(ax.x - 40, ax.y);
-  ctx.lineTo(ax.x - 30, ax.y - 5);
-  ctx.lineTo(ax.x - 30, ax.y + 5);
-  ctx.closePath(); ctx.fill();
-  ctx.fillText("+Y (left)", ax.x - 78, ax.y - 6);
+  ctx.fillText("HOME", home.x - 46, home.y - 10);
 
   ctx.restore();
 }
@@ -392,7 +372,6 @@ function drawGeom() {
   ctx.save();
   ctx.strokeStyle = "rgba(125,211,252,0.95)";
   ctx.lineWidth = 2;
-  ctx.setLineDash([]);
   for (const s of geomSegs) {
     const a = w2s(s.a), b = w2s(s.b);
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
@@ -420,7 +399,6 @@ function drawToolReveal() {
   // cuts (red) + out-of-bounds (orange)
   ctx.save();
   ctx.lineWidth = 2;
-  ctx.setLineDash([]);
   for (let i = 0; i < n; i++) {
     const s = toolSegs[i];
     if (s.mode !== "CUT") continue;
@@ -443,7 +421,6 @@ function draw() {
 // ---------------- Toolpath planning ----------------
 function angle(a, b) { return Math.atan2(b.y - a.y, b.x - a.x); }
 function normAng(x) { while (x < -Math.PI) x += 2 * Math.PI; while (x > Math.PI) x -= 2 * Math.PI; return x; }
-function degToRad(d) { return d * Math.PI / 180; }
 
 function mergeCollinear(chain, tol) {
   const out = [];
@@ -567,13 +544,11 @@ function mergeContinuous(paths, chainTol) {
 
 // ---------------- Machine bounds check ----------------
 function toMachineCoords(p) {
+  // Center-zero -> machine coords: [0..travel]
   return { x: p.x + MACHINE_CENTER_SHIFT.x, y: p.y + MACHINE_CENTER_SHIFT.y };
 }
-function insideMachine(pMachine) {
-  return (
-    pMachine.x >= 0 && pMachine.x <= MACHINE_X_TRAVEL &&
-    pMachine.y >= 0 && pMachine.y <= MACHINE_Y_TRAVEL
-  );
+function insideMachine(pm) {
+  return (pm.x >= 0 && pm.x <= MACHINE_X_TRAVEL && pm.y >= 0 && pm.y <= MACHINE_Y_TRAVEL);
 }
 function checkOvertravelAndMark(toolSegments) {
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -613,7 +588,6 @@ function buildProgram(paths, opts) {
   const outXY = (x, y) => `X${fmt(x, P)} Y${fmt(y, P)}`;
   const outZ = (z) => `Z${fmt(z, P)}`;
 
-  // Header tuned for generic USB controllers
   push("%");
   push("(NorrisCAM - USB G-code)");
   push(opts.toolComment);
@@ -777,15 +751,21 @@ function setTab(which) {
   $("paneOptions").classList.toggle("active", which === "options");
 }
 
-// ---------------- Scaling actions ----------------
-function applyScaleFromUI(keepViewStable = true) {
+// ---------------- Transform actions ----------------
+function readTransformFromUI() {
+  const pct = Math.max(1, Number($("scalePct").value || 100));
+  const rot = Number($("rotDeg").value || 0);
+  currentScale = pct / 100;
+  currentRotDeg = rot;
+}
+
+function applyTransform(keepViewStable = true) {
   if (!baseGeomSegs.length) return;
 
-  const pct = Math.max(1, Number($("scalePct").value || 100));
-  currentScale = pct / 100;
-  geomSegs = scaleSegs(baseGeomSegs, currentScale);
+  readTransformFromUI();
+  geomSegs = transformSegs(baseGeomSegs, currentScale, currentRotDeg);
 
-  // Do NOT refit view. Keep stable.
+  // Keep view stable (no jumping)
   if (keepViewStable) {
     if (!viewLocked) lockView();
   } else if (!userTouchedView) {
@@ -803,25 +783,37 @@ function applyScaleFromUI(keepViewStable = true) {
 
   renderNC();
   draw();
-  setStatus("ok", "Scaled", `Geometry scaled to ${pct}%. Build toolpath again.`);
+  setStatus("ok", "Transform applied", `Scale=${Math.round(currentScale * 100)}% • Rotate=${Math.round(currentRotDeg)}° • Build toolpath again.`);
 }
 
-function fitScaleToMachine() {
-  if (!baseGeomSegs.length) return;
-
-  // compute factor so geometry bounds fit inside machine bounds (center-zero)
-  const b = bounds(baseGeomSegs);
+function computeFitScaleForRotation(baseSegs, rotDeg) {
+  const rotated = transformSegs(baseSegs, 1.0, rotDeg);
+  const b = bounds(rotated);
   const w = (b.maxX - b.minX) || 1;
   const h = (b.maxY - b.minY) || 1;
 
-  const maxW = MACHINE_X_TRAVEL; // in part coords width matches travel
+  const maxW = MACHINE_X_TRAVEL;
   const maxH = MACHINE_Y_TRAVEL;
 
-  const factor = Math.min(maxW / w, maxH / h) * 0.98; // small margin
-  const pct = Math.max(1, Math.round(factor * 100));
+  const factor = Math.min(maxW / w, maxH / h) * 0.98; // margin
+  return Math.max(0.001, factor);
+}
+
+function fitToMachine() {
+  if (!baseGeomSegs.length) return;
+
+  const rot = Number($("rotDeg").value || 0);
+  const fitScale = computeFitScaleForRotation(baseGeomSegs, rot);
+  const pct = Math.max(1, Math.round(fitScale * 100));
 
   $("scalePct").value = String(pct);
-  applyScaleFromUI(true);
+  applyTransform(true);
+}
+
+function resetTransform() {
+  $("scalePct").value = "100";
+  $("rotDeg").value = "0";
+  applyTransform(true);
 }
 
 // ---------------- Events ----------------
@@ -829,8 +821,10 @@ $("tabMain").addEventListener("click", () => setTab("main"));
 $("tabOptions").addEventListener("click", () => setTab("options"));
 
 $("showFootprint").addEventListener("change", () => draw());
-$("applyScale").addEventListener("click", () => applyScaleFromUI(true));
-$("fitToMachine").addEventListener("click", () => fitScaleToMachine());
+
+$("applyTransform").addEventListener("click", () => applyTransform(true));
+$("fitToMachine").addEventListener("click", () => fitToMachine());
+$("resetTransform").addEventListener("click", () => resetTransform());
 
 $("stepBtn").addEventListener("click", () => step(+1));
 $("backBtn").addEventListener("click", () => step(-1));
@@ -878,32 +872,21 @@ $("file").addEventListener("change", async (e) => {
     return;
   }
 
-  // Apply origin shift to base geometry
-  segs = applyOriginShift(segs, opts.origin);
-  baseGeomSegs = segs;
+  // Apply origin shift to BASE geometry
+  baseGeomSegs = applyOriginShift(segs, opts.origin);
 
-  // Reset scale to UI percent
-  currentScale = (Math.max(1, Number($("scalePct").value || 100)) / 100);
-  geomSegs = scaleSegs(baseGeomSegs, currentScale);
-
-  // Reset toolpath/NC
-  toolSegs = [];
-  ncLines = [];
-  ncText = "";
-  revealSegCount = 0;
-  currentNCLine = -1;
-  shownNCMax = -1;
+  // Apply current transform
+  applyTransform(true);
 
   enableAfterImport(true);
-  enableAfterBuild(false);
 
-  // Fit view ONCE (first import), then lock it.
+  // Fit view ONCE on first import if user hasn't touched view
   if (!userTouchedView) fitViewOnce(geomSegs);
   else lockView();
 
   renderNC();
   draw();
-  setStatus("ok", "Loaded", `Geometry ready. Scale=${Math.round(currentScale * 100)}%. Click Build Toolpath.`);
+  setStatus("ok", "Loaded", `Geometry ready. Scale=${Math.round(currentScale * 100)}% • Rotate=${Math.round(currentRotDeg)}°`);
 });
 
 // Build toolpath
@@ -917,17 +900,12 @@ $("buildToolpath").addEventListener("click", () => {
 
     const opts = readOpts();
 
-    // IMPORTANT: Do NOT re-extract unless you want tolerance changes to affect parsing.
-    // We *will* re-extract only if trace precision changed, then re-apply origin and re-scale.
-    // Safer: rebuild baseGeomSegs from parser using new outPrec (so arcs/circles tessellation updates).
+    // Re-extract using current trace precision, then re-apply origin, then re-apply transform
     let segs = extractSegments(dxfParsed, opts.outPrec);
-    segs = applyOriginShift(segs, opts.origin);
-    baseGeomSegs = segs;
+    baseGeomSegs = applyOriginShift(segs, opts.origin);
 
-    // apply current scale
-    const pct = Math.max(1, Number($("scalePct").value || 100));
-    currentScale = pct / 100;
-    geomSegs = scaleSegs(baseGeomSegs, currentScale);
+    readTransformFromUI();
+    geomSegs = transformSegs(baseGeomSegs, currentScale, currentRotDeg);
 
     let paths = buildPaths(geomSegs, opts);
     paths = orderNearest(paths);
@@ -951,17 +929,17 @@ $("buildToolpath").addEventListener("click", () => {
     revealSegCount = 0;
     currentNCLine = -1;
     shownNCMax = Math.min(ncLines.length - 1, 60);
-    renderNC();
-    draw();
 
     enableAfterBuild(true);
+
+    renderNC();
+    draw();
 
     if (over.isOver) {
       const msg =
         `⚠ Overtravel detected (machine ${MACHINE_X_TRAVEL}" X, ${MACHINE_Y_TRAVEL}" Y)\n` +
         `X: ${over.minX.toFixed(2)} → ${over.maxX.toFixed(2)} (limit 0–${MACHINE_X_TRAVEL})\n` +
-        `Y: ${over.minY.toFixed(2)} → ${over.maxY.toFixed(2)} (limit 0–${MACHINE_Y_TRAVEL})\n` +
-        `Tip: center-zero: keep geometry within ±${(MACHINE_X_TRAVEL / 2).toFixed(2)}" in X and ±${(MACHINE_Y_TRAVEL / 2).toFixed(2)}" in Y.`;
+        `Y: ${over.minY.toFixed(2)} → ${over.maxY.toFixed(2)} (limit 0–${MACHINE_Y_TRAVEL})`;
 
       setStatus("warn", "Built (Overtravel)", msg.replace(/\n/g, " • "));
       console.warn(msg);
