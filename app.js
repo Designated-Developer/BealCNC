@@ -1,27 +1,38 @@
-// NorrisCAM — DXF preview + simplified toolpath + USB-ready .NC output
-// Fix: prevent empty/invalid paths from reaching ordering/building (was causing: undefined 'a')
+// NorrisCAM — DXF preview + tolerant toolpath + USB-ready .NC output (inches)
+// Key behavior:
+// - DXF previews instantly after import
+// - Tool stays DOWN across continuous chains (end == next start within Chain Tol)
+// - Retract to Safe Z ONLY when a true rapid reposition is needed
+// - No spindle codes (controller handles spindle)
+// - Student-proof status + NC preview + copy + simulation
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("c");
 const ctx = canvas.getContext("2d");
 
 let dxfParsed = null;
-let previewSegs = [];   // {a,b}
-let playback = [];      // sim segments
+let previewSegs = [];    // {a,b}
+let playback = [];       // sim segments
 let moves = [];
 let lastNC = "";
 let playing = false;
 
 const view = { scale: 60, ox: 0, oy: 0, dragging: false, lx: 0, ly: 0 };
 
-function setTopStatus(s){ $("topStatus").textContent = s; }
-function setStats(s){ $("stats").textContent = s; }
+function setStatus(kind, title, detail){
+  $("topStatus").textContent = title;
+  $("stats").textContent = detail || "";
+  const dot = $("statusDot");
+  dot.classList.remove("good","warn","bad");
+  if(kind === "good") dot.classList.add("good");
+  else if(kind === "warn") dot.classList.add("warn");
+  else if(kind === "bad") dot.classList.add("bad");
+}
 
 function readOpts(){
   const safeZ = Number($("safeZ").value || 0.5);
   const totalDepth = -Math.abs(Number($("cutZ").value || 0.0625));
   const stepDown = Math.max(0.001, Number($("stepDown").value || 0.0625));
-
   return {
     units: "inch",
     origin: $("origin").value,
@@ -35,8 +46,6 @@ function readOpts(){
     angleTolDeg: Math.max(1, Number($("angleTolDeg").value || 12)),
     chainTol: Math.max(0.0005, Number($("chainTol").value || 0.02)),
     toolComment: $("toolComment").value || "(T1 - 1/4 endmill, centerline, no comp)",
-    spindleOn: $("spindleOn").checked,
-    spindleS: Math.max(0, Number($("spindleS").value || 12000)),
   };
 }
 
@@ -49,12 +58,11 @@ function fmt(n, step){
 function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
 function degToRad(d){ return d*Math.PI/180; }
 function angle(a,b){ return Math.atan2(b.y-a.y, b.x-a.x); }
-
-function snapPoint(p, grid){
-  return { x: Math.round(p.x/grid)*grid, y: Math.round(p.y/grid)*grid };
-}
 function samePt(a,b,tol){
   return Math.abs(a.x-b.x)<=tol && Math.abs(a.y-b.y)<=tol;
+}
+function snapPoint(p, grid){
+  return { x: Math.round(p.x/grid)*grid, y: Math.round(p.y/grid)*grid };
 }
 function collinear(a,b,c,eps){
   return Math.abs((b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)) <= eps;
@@ -63,11 +71,9 @@ function collinear(a,b,c,eps){
 // ---------- Bulletproof point normalization ----------
 function xyOf(pt){
   if(!pt) return null;
-
   if(Array.isArray(pt) && pt.length >= 2 && isFinite(pt[0]) && isFinite(pt[1])){
     return {x:Number(pt[0]), y:Number(pt[1])};
   }
-
   if(typeof pt === "object"){
     if(isFinite(pt.x) && isFinite(pt.y)) return {x:Number(pt.x), y:Number(pt.y)};
     if(isFinite(pt[0]) && isFinite(pt[1])) return {x:Number(pt[0]), y:Number(pt[1])};
@@ -76,11 +82,10 @@ function xyOf(pt){
       if(p) return p;
     }
   }
-
   return null;
 }
 
-// -------- DXF Extract (LINE/ARC/CIRCLE + POLYLINES + SPLINE fallback) --------
+// -------- DXF Extract (LINE + polyline + spline fallback) --------
 function extractSegments(dxf){
   const out = [];
   const ents = dxf?.entities || [];
@@ -92,35 +97,14 @@ function extractSegments(dxf){
       continue;
     }
 
-    if(e.type === "ARC"){
-      const c=xyOf(e.center);
-      const r = Number(e.radius);
-      if(!c || !isFinite(r) || r<=0) continue;
-
-      const a1=degToRad(Number(e.startAngle));
-      const a2=degToRad(Number(e.endAngle));
-      const a={x:c.x+r*Math.cos(a1), y:c.y+r*Math.sin(a1)};
-      const b={x:c.x+r*Math.cos(a2), y:c.y+r*Math.sin(a2)};
-      out.push({kind:"arc", a, b, c, r, ccw:true});
-      continue;
-    }
-
-    if(e.type === "CIRCLE"){
-      const c=xyOf(e.center);
-      const r=Number(e.radius);
-      if(!c || !isFinite(r) || r<=0) continue;
-      const a={x:c.x+r,y:c.y}, m={x:c.x-r,y:c.y};
-      out.push({kind:"arc", a, b:m, c, r, ccw:true});
-      out.push({kind:"arc", a:m, b:a, c, r, ccw:true});
-      continue;
-    }
-
+    // We accept ARC/CIRCLE in preview extraction if needed later,
+    // but this build focuses on tolerant traced lines (what you’re using).
     if(e.type === "LWPOLYLINE" || e.type === "POLYLINE"){
       const verts = (e.vertices || [])
         .map(v => {
           const p = xyOf(v);
           if(!p) return null;
-          return { x:p.x, y:p.y, bulge: Number(v.bulge || 0) };
+          return { x:p.x, y:p.y };
         })
         .filter(Boolean);
 
@@ -128,13 +112,11 @@ function extractSegments(dxf){
 
       for(let i=0;i<verts.length-1;i++){
         const p=verts[i], q=verts[i+1];
-        if(Math.abs(p.bulge) > 1e-12) out.push(bulgeToArcSeg(p, q, p.bulge));
-        else out.push({kind:"line", a:{x:p.x,y:p.y}, b:{x:q.x,y:q.y}});
+        out.push({kind:"line", a:{x:p.x,y:p.y}, b:{x:q.x,y:q.y}});
       }
       if(e.closed){
         const p=verts[verts.length-1], q=verts[0];
-        if(Math.abs(p.bulge) > 1e-12) out.push(bulgeToArcSeg(p, q, p.bulge));
-        else out.push({kind:"line", a:{x:p.x,y:p.y}, b:{x:q.x,y:q.y}});
+        out.push({kind:"line", a:{x:p.x,y:p.y}, b:{x:q.x,y:q.y}});
       }
       continue;
     }
@@ -154,29 +136,6 @@ function extractSegments(dxf){
   return out;
 }
 
-function bulgeToArcSeg(p, q, bulge) {
-  const x1=p.x,y1=p.y,x2=q.x,y2=q.y;
-  const dx=x2-x1, dy=y2-y1;
-  const chord=Math.hypot(dx,dy);
-  if (chord < 1e-12) return { kind:"line", a:{x:x1,y:y1}, b:{x:x2,y:y2} };
-
-  const theta = 4 * Math.atan(bulge);
-  const ccw = theta > 0;
-  const absTheta = Math.abs(theta);
-
-  const r = chord / (2 * Math.sin(absTheta/2));
-  const mx=(x1+x2)/2, my=(y1+y2)/2;
-  const h = Math.sqrt(Math.max(0, r*r - (chord*chord)/4));
-
-  const ux=dx/chord, uy=dy/chord;
-  const nx=-uy, ny=ux;
-  const sign = ccw ? 1 : -1;
-  const cx = mx + sign*h*nx;
-  const cy = my + sign*h*ny;
-
-  return { kind:"arc", a:{x:x1,y:y1}, b:{x:x2,y:y2}, c:{x:cx,y:cy}, r, ccw };
-}
-
 // -------- Origin shift --------
 function boundsOfSegments(segs){
   let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
@@ -190,8 +149,7 @@ function boundsOfSegments(segs){
   return {minX,minY,maxX,maxY};
 }
 function shiftSeg(s, dx, dy){
-  if(s.kind==="line") return {...s, a:{x:s.a.x+dx,y:s.a.y+dy}, b:{x:s.b.x+dx,y:s.b.y+dy}};
-  return {...s, a:{x:s.a.x+dx,y:s.a.y+dy}, b:{x:s.b.x+dx,y:s.b.y+dy}, c:{x:s.c.x+dx,y:s.c.y+dy}};
+  return {kind:"line", a:{x:s.a.x+dx,y:s.a.y+dy}, b:{x:s.b.x+dx,y:s.b.y+dy}};
 }
 function applyOriginShift(segs, origin){
   const b = boundsOfSegments(segs);
@@ -207,7 +165,7 @@ function applyOriginShift(segs, origin){
   return segs.map(s => shiftSeg(s, dx, dy));
 }
 
-// -------- Toolpath (snap + simplify, tolerant) --------
+// -------- Snap + chain build + simplify --------
 function mergeCollinear(pathSegs, tol){
   const out=[];
   if(!Array.isArray(pathSegs) || pathSegs.length===0) return out;
@@ -217,16 +175,16 @@ function mergeCollinear(pathSegs, tol){
 
   while(i<pathSegs.length){
     const s=pathSegs[i];
-    if(!s || !s.a || !s.b) { i++; continue; }
-
+    if(!s?.a || !s?.b) { i++; continue; }
     let a=s.a, b=s.b;
+
     if(!isFinite(a.x)||!isFinite(a.y)||!isFinite(b.x)||!isFinite(b.y)){ i++; continue; }
     if(samePt(a,b,tol)){ i++; continue; }
 
     let j=i+1;
     while(j<pathSegs.length){
       const n=pathSegs[j];
-      if(!n || !n.a || !n.b) break;
+      if(!n?.a || !n?.b) break;
       if(!samePt(b, n.a, tol)) break;
       if(samePt(n.a,n.b,tol)){ j++; continue; }
       if(!collinear(a,b,n.b,eps)) break;
@@ -239,37 +197,39 @@ function mergeCollinear(pathSegs, tol){
   return out;
 }
 
-function rebuildTracedPaths(segs, snapGrid, angleTolDeg, outPrec){
+// Build “paths” by chaining snapped endpoints.
+// Then simplify each chain by merging collinear segments.
+function buildPathsFromLines(lines, snapGrid, angleTolDeg, outPrec){
   const minLen = Math.max(outPrec*0.9, snapGrid*0.5);
+  const tol = snapGrid * 0.55;
+  const angTol = degToRad(angleTolDeg);
 
-  const lines = segs
-    .filter(s=>s && s.kind==="line" && s.a && s.b)
+  // snap + filter
+  const L = lines
     .map(s=>({kind:"line", a:snapPoint(s.a,snapGrid), b:snapPoint(s.b,snapGrid)}))
-    .filter(s=>
+    .filter(s =>
       isFinite(s.a.x)&&isFinite(s.a.y)&&isFinite(s.b.x)&&isFinite(s.b.y) &&
       dist(s.a,s.b) >= minLen
     );
 
-  const tol = snapGrid * 0.55;
-  const angTol = degToRad(angleTolDeg);
-
+  // adjacency on start point
   const map=new Map();
   const k=(p)=>`${Math.round(p.x/snapGrid)},${Math.round(p.y/snapGrid)}`;
-  for(let i=0;i<lines.length;i++){
-    const ks=k(lines[i].a);
+  for(let i=0;i<L.length;i++){
+    const ks=k(L[i].a);
     if(!map.has(ks)) map.set(ks,[]);
     map.get(ks).push(i);
   }
 
-  const used=new Array(lines.length).fill(false);
+  const used=new Array(L.length).fill(false);
   const paths=[];
 
-  for(let i=0;i<lines.length;i++){
+  for(let i=0;i<L.length;i++){
     if(used[i]) continue;
     used[i]=true;
 
-    const chain=[lines[i]];
-    let cur=lines[i];
+    const chain=[L[i]];
+    let cur=L[i];
 
     while(true){
       const end=cur.b;
@@ -279,8 +239,7 @@ function rebuildTracedPaths(segs, snapGrid, angleTolDeg, outPrec){
       let best=-1, bestScore=Infinity;
       for(const idx of cand){
         if(used[idx]) continue;
-        const s=lines[idx];
-        if(!s || !s.a || !s.b) continue;
+        const s=L[idx];
         if(!samePt(end, s.a, tol)) continue;
 
         const d1=angle(s.a,s.b);
@@ -290,21 +249,21 @@ function rebuildTracedPaths(segs, snapGrid, angleTolDeg, outPrec){
       }
       if(best===-1) break;
       used[best]=true;
-      chain.push(lines[best]);
-      cur=lines[best];
+      chain.push(L[best]);
+      cur=L[best];
     }
 
     const merged = mergeCollinear(chain, snapGrid);
-    if(merged.length) paths.push({segments: merged});
+    if(merged.length){
+      paths.push({segments: merged});
+    }
   }
 
-  // Final sanity filter: no empties, no bad coords
-  return paths.filter(p =>
-    p && Array.isArray(p.segments) && p.segments.length &&
-    p.segments.every(s => s && s.a && s.b && isFinite(s.a.x)&&isFinite(s.a.y)&&isFinite(s.b.x)&&isFinite(s.b.y))
-  );
+  // sanity filter
+  return paths.filter(p => p?.segments?.length);
 }
 
+// Order paths by nearest travel (reduces rapids)
 function orderPathsNearest(paths){
   const clean = (paths||[]).filter(p => p?.segments?.length);
   if(clean.length<=1) return clean;
@@ -313,7 +272,6 @@ function orderPathsNearest(paths){
   const ordered = [];
   let cur = remaining.shift();
   ordered.push(cur);
-
   let curPt = cur.segments[cur.segments.length-1].b;
 
   while(remaining.length){
@@ -321,71 +279,125 @@ function orderPathsNearest(paths){
 
     for(let i=0;i<remaining.length;i++){
       const p=remaining[i];
-      if(!p?.segments?.length) continue;
-
-      const first = p.segments[0];
-      const last  = p.segments[p.segments.length-1];
-      if(!first?.a || !last?.b) continue;
-
-      const a=first.a;
-      const b=last.b;
-
+      const a=p.segments[0].a;
+      const b=p.segments[p.segments.length-1].b;
       const dA=dist(curPt,a);
       const dB=dist(curPt,b);
-
       if(dA<bestD){ bestD=dA; bestIdx=i; flip=false; }
       if(dB<bestD){ bestD=dB; bestIdx=i; flip=true; }
     }
 
-    if(bestIdx === -1) break; // nothing valid left
-
-    cur = remaining.splice(bestIdx,1)[0];
+    const next = remaining.splice(bestIdx,1)[0];
     if(flip){
-      cur.segments = cur.segments.slice().reverse().map(s => ({kind:"line", a:s.b, b:s.a}));
+      next.segments = next.segments.slice().reverse().map(s => ({kind:"line", a:s.b, b:s.a}));
     }
-    ordered.push(cur);
-    curPt = cur.segments[cur.segments.length-1].b;
+    ordered.push(next);
+    curPt = next.segments[next.segments.length-1].b;
   }
-
   return ordered;
 }
 
-// -------- Moves / NC --------
+// 🔥 The important part:
+// Merge consecutive paths when they are continuous (end ≈ next start within chainTol).
+// This is what keeps the tool DOWN for continuous chains.
+function mergeContinuousPaths(paths, chainTol){
+  if(paths.length <= 1) return paths;
+
+  const out=[];
+  let cur = paths[0];
+
+  for(let i=1;i<paths.length;i++){
+    const next = paths[i];
+    const curEnd = cur.segments[cur.segments.length-1].b;
+    const nextStart = next.segments[0].a;
+
+    if(samePt(curEnd, nextStart, chainTol)){
+      // stitch them into a single continuous chain
+      cur = { segments: cur.segments.concat(next.segments) };
+    } else {
+      out.push(cur);
+      cur = next;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+// -------- Moves / NC (tool-down across continuous chains) --------
 function buildMoves(paths, opts){
   const m=[];
-  m.push({type:"retract", z:opts.safeZ});
-
   const depth = Math.abs(opts.totalDepth);
   const step = opts.stepDown;
   const passCount = Math.max(1, Math.ceil(depth / step));
   const depths = [];
   for(let i=1;i<=passCount;i++) depths.push(-Math.min(depth, i*step));
 
+  // State
   let curXY = {x:0,y:0};
+  let curZ = opts.safeZ;
+
+  // helpers
+  const retract = () => {
+    if(curZ !== opts.safeZ){
+      m.push({type:"retract", z:opts.safeZ});
+      curZ = opts.safeZ;
+    }
+  };
+  const rapidXY = (x,y) => {
+    m.push({type:"rapidXY", x, y});
+    curXY = {x,y};
+  };
+  const plunge = (z) => {
+    m.push({type:"plunge", z, f:opts.feedZ});
+    curZ = z;
+  };
+  const setFeedXY = () => m.push({type:"feedXY", f:opts.feedXY});
+  const cutTo = (x,y) => {
+    m.push({type:"cutLine", x, y});
+    curXY = {x,y};
+  };
+
+  // start safe
+  retract();
 
   for(const passZ of depths){
+    retract();
+
     for(const p of paths){
       if(!p?.segments?.length) continue;
 
-      const startSeg = p.segments[0];
-      if(!startSeg?.a) continue;
-      const start = startSeg.a;
+      const start = p.segments[0].a;
 
-      if(dist(curXY, start) > 1e-12) m.push({type:"rapidXY", x:start.x, y:start.y});
-      curXY = {x:start.x, y:start.y};
-
-      m.push({type:"plunge", z:passZ, f:opts.feedZ});
-      m.push({type:"feedXY", f:opts.feedXY});
-
-      for(const s of p.segments){
-        if(!s?.b) continue;
-        m.push({type:"cutLine", x:s.b.x, y:s.b.y});
-        curXY = {x:s.b.x, y:s.b.y};
+      // If we are not already exactly at the start point, we must reposition:
+      // - retract to safeZ
+      // - rapid to start
+      // - plunge to pass depth
+      if(!samePt(curXY, start, opts.chainTol) || curZ !== passZ){
+        retract();
+        if(!samePt(curXY, start, opts.chainTol)){
+          rapidXY(start.x, start.y);
+        }
+        plunge(passZ);
+        setFeedXY();
+      } else {
+        // We are already at the start point at depth -> continue cutting without lifting
+        setFeedXY();
       }
 
-      m.push({type:"retract", z:opts.safeZ});
+      // cut segments
+      for(const s of p.segments){
+        cutTo(s.b.x, s.b.y);
+      }
+
+      // IMPORTANT: do NOT retract here.
+      // We only retract when the NEXT move requires a rapid reposition.
+      // (That’s the whole point.)
     }
+
+    // end of pass -> retract safe
+    retract();
   }
+
   return m;
 }
 
@@ -402,10 +414,6 @@ function buildNC(moves, opts){
   g.push("G40 (cancel cutter comp)");
   g.push("G49 (cancel tool length offset)");
   g.push("G54 (work offset)");
-
-  if(opts.spindleOn && opts.spindleS > 0){
-    g.push(`M3 S${Math.round(opts.spindleS)} (spindle on)`);
-  }
 
   let lastF=null;
   let atZ=null;
@@ -440,7 +448,6 @@ function buildNC(moves, opts){
     }
   }
 
-  if(opts.spindleOn) g.push("M5 (spindle stop)");
   g.push("M30 (end)");
   g.push("%");
   return g.join("\n");
@@ -540,7 +547,7 @@ function drawGrid(){
 function drawPreviewGeometry(){
   if(!previewSegs.length) return;
   ctx.save();
-  ctx.strokeStyle="rgba(125,211,252,0.9)";
+  ctx.strokeStyle="rgba(125,211,252,0.95)";
   ctx.lineWidth=2;
   for(const s of previewSegs){
     const a=worldToScreen(s.a), b=worldToScreen(s.b);
@@ -551,8 +558,9 @@ function drawPreviewGeometry(){
 function drawToolpath(){
   if(!playback.length) return;
 
+  // rapids
   ctx.save();
-  ctx.strokeStyle="rgba(122,167,255,0.55)";
+  ctx.strokeStyle="rgba(122,167,255,0.65)";
   ctx.lineWidth=2;
   ctx.setLineDash([6,6]);
   for(const s of playback){
@@ -562,8 +570,9 @@ function drawToolpath(){
   }
   ctx.restore();
 
+  // cuts
   ctx.save();
-  ctx.strokeStyle="rgba(255,122,122,0.9)";
+  ctx.strokeStyle="rgba(255,122,122,0.92)";
   ctx.lineWidth=2;
   ctx.setLineDash([]);
   for(const s of playback){
@@ -627,7 +636,7 @@ $("file").addEventListener("change", async (e)=>{
   const f=e.target.files?.[0];
   if(!f) return;
 
-  setTopStatus(`Loading ${f.name}…`);
+  setStatus("warn", "Loading…", f.name);
 
   try{
     const text = await f.text();
@@ -635,8 +644,8 @@ $("file").addEventListener("change", async (e)=>{
     dxfParsed = parser.parseSync(text);
   }catch(err){
     console.error(err);
+    setStatus("bad","DXF parse failed","Try exporting as R12 / ASCII DXF.");
     alert("DXF parse failed. Try exporting as R12 / ASCII DXF.");
-    setTopStatus("DXF parse failed");
     return;
   }
 
@@ -644,8 +653,8 @@ $("file").addEventListener("change", async (e)=>{
   let segs = extractSegments(dxfParsed);
 
   if(!segs.length){
+    setStatus("bad","No supported geometry","Need LINE / (polyline) / spline points.");
     alert("No usable geometry extracted. Re-export DXF as R12/ASCII or explode polylines.");
-    setTopStatus("No geometry extracted");
     return;
   }
 
@@ -655,13 +664,16 @@ $("file").addEventListener("change", async (e)=>{
   playback = [];
   moves = [];
   lastNC = "";
-  $("download").disabled = true;
+  $("ncPreview").value = "";
 
-  fitViewToSegments(previewSegs);
+  $("buildToolpath").disabled = false;
+  $("download").disabled = true;
+  $("copyNC").disabled = true;
+
   $("fit").disabled = false;
 
-  setTopStatus(`Loaded: ${f.name}`);
-  setStats(`Preview ready. Segments extracted: ${segs.length}. Click “Build Toolpath + NC”.`);
+  fitViewToSegments(previewSegs);
+  setStatus("good","Loaded", `Segments extracted: ${segs.length}. Click Build.`);
   draw();
 });
 
@@ -672,19 +684,23 @@ $("buildToolpath").addEventListener("click", ()=>{
   }
 
   try{
-    setTopStatus("Building toolpath…");
+    setStatus("warn","Building…","Creating chains + NC output");
     const opts=readOpts();
 
     let segs = extractSegments(dxfParsed);
     segs = applyOriginShift(segs, opts.origin);
 
-    const rawPaths = rebuildTracedPaths(segs, opts.snapGrid, opts.angleTolDeg, opts.outPrec);
-    const paths = orderPathsNearest(rawPaths);
+    // lines only for tolerant traced output
+    const lines = segs.filter(s=>s.kind==="line");
+
+    // build paths, order, then merge continuous (tool-down)
+    let paths = buildPathsFromLines(lines, opts.snapGrid, opts.angleTolDeg, opts.outPrec);
+    paths = orderPathsNearest(paths);
+    paths = mergeContinuousPaths(paths, opts.chainTol);
 
     if(!paths.length){
-      alert("No paths created (everything got simplified away). Try:\n- lower Snap Grid (e.g. 0.01)\n- lower Output Precision (e.g. 0.005)\n- increase Angle Tol (e.g. 20)");
-      setTopStatus("Build produced 0 paths");
-      setStats("Build produced 0 valid paths.");
+      setStatus("bad","Build produced 0 paths","Try Snap Grid 0.01, Angle Tol 20, Output Prec 0.005");
+      alert("No paths created. Try:\n- Snap Grid 0.01\n- Output Prec 0.005\n- Angle Tol 20");
       return;
     }
 
@@ -692,20 +708,22 @@ $("buildToolpath").addEventListener("click", ()=>{
     lastNC = buildNC(moves, opts);
     playback = buildPlayback(moves);
 
+    $("ncPreview").value = lastNC;
+
     $("download").disabled = false;
+    $("copyNC").disabled = false;
     $("play").disabled = false;
     $("pause").disabled = false;
     $("scrub").disabled = false;
     $("scrub").value = "0";
     playing = false;
 
-    setTopStatus("Built toolpath");
-    setStats(`Paths: ${paths.length} | NC lines: ${lastNC.split("\n").length} | Origin: ${opts.origin.toUpperCase()} | Output: inches (.nc)`);
+    const ncLines = lastNC.split("\n").length;
+    setStatus("good","Built", `Paths: ${paths.length} | NC lines: ${ncLines} | Tool-down chaining ON`);
     draw();
   }catch(err){
     console.error(err);
-    setTopStatus("Build failed");
-    setStats(`Build error: ${err?.message || String(err)}`);
+    setStatus("bad","Build failed", err?.message || String(err));
     alert(`Build failed:\n${err?.message || String(err)}`);
   }
 });
@@ -718,6 +736,16 @@ $("download").addEventListener("click", ()=>{
   a.download="output.nc";
   a.click();
   URL.revokeObjectURL(a.href);
+});
+
+$("copyNC").addEventListener("click", async ()=>{
+  if(!lastNC) return;
+  try{
+    await navigator.clipboard.writeText(lastNC);
+    setStatus("good","Copied","NC copied to clipboard");
+  }catch{
+    alert("Copy failed (browser permissions). You can still select/copy from the NC preview box.");
+  }
 });
 
 $("fit").addEventListener("click", ()=>{
@@ -733,14 +761,19 @@ $("fit").addEventListener("click", ()=>{
 $("origin").addEventListener("change", ()=>{
   if(!dxfParsed) return;
   const opts=readOpts();
-  let segs = applyOriginShift(extractSegments(dxfParsed), opts.origin);
+  let segs = extractSegments(dxfParsed);
+  if(!segs.length) return;
+  segs = applyOriginShift(segs, opts.origin);
   previewSegs = segs.map(s=>({a:s.a,b:s.b}));
+
   playback=[]; moves=[]; lastNC="";
+  $("ncPreview").value = "";
   $("download").disabled=true;
+  $("copyNC").disabled=true;
   $("play").disabled=true; $("pause").disabled=true; $("scrub").disabled=true;
+
   fitViewToSegments(previewSegs);
-  setTopStatus("Origin changed (preview updated)");
-  setStats("Rebuild toolpath to update the .nc output.");
+  setStatus("warn","Origin changed","Preview updated — rebuild toolpath for NC");
   draw();
 });
 
@@ -764,7 +797,7 @@ function init(){
   const r=canvas.getBoundingClientRect();
   view.ox = r.width/2;
   view.oy = r.height/2;
-  setTopStatus("Idle");
+  setStatus("warn","Idle","Import a DXF to begin.");
   tick();
 }
 init();
