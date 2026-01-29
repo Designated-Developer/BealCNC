@@ -1,335 +1,534 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NorrisCAM</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>NorrisCAM</title>
 
-<style>
-:root{
-  --bg:#0b1220;
-  --panel:#0f1a33;
-  --line:rgba(255,255,255,.08);
-  --text:rgba(255,255,255,.92);
-  --muted:rgba(255,255,255,.55);
-  --accent:#7dd3fc;
-}
+  <style>
+    :root{
+      --bg:#0b1220;
+      --panel:#0f1a33;
+      --panel2:#0c1530;
+      --line:rgba(255,255,255,.08);
+      --text:rgba(255,255,255,.9);
+      --muted:rgba(255,255,255,.65);
+      --muted2:rgba(255,255,255,.45);
+      --accent:#7dd3fc;
+      --warn:#fbbf24;
+      --bad:#fb7185;
+      --ok:#34d399;
+    }
+    *{box-sizing:border-box}
 
-/* ---------- BASE ---------- */
-*{ box-sizing:border-box }
-body{
-  margin:0;
-  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  background:var(--bg);
-  color:var(--text);
-  overflow:hidden;
-}
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background:
+        radial-gradient(1200px 700px at 20% 0%, rgba(125,211,252,.18), transparent 55%),
+        radial-gradient(900px 650px at 95% 10%, rgba(52,211,153,.12), transparent 50%),
+        var(--bg);
+      color:var(--text);
+      overflow:hidden; /* page never scrolls */
+    }
 
-.app{height:100vh;display:flex;flex-direction:column}
+    .app{height:100vh;display:flex;flex-direction:column;min-height:0}
 
-/* ---------- HEADER ---------- */
-header{
-  height:64px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:0 16px;
-  border-bottom:1px solid var(--line);
-  background:linear-gradient(180deg,#0f1a33,#0b1220);
-}
+    header{
+      height:64px;
+      flex:0 0 auto;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:0 16px;
+      border-bottom:1px solid var(--line);
+      background: linear-gradient(180deg, rgba(15,26,51,.9), rgba(15,26,51,.55));
+      backdrop-filter: blur(10px);
+    }
 
-.brand{display:flex;align-items:center;gap:12px}
-.logoWrap{
-  width:44px;height:44px;border-radius:12px;
-  background:linear-gradient(145deg,#7dd3fc55,#34d39933);
-  display:flex;align-items:center;justify-content:center;
-}
-.brandText{display:flex;flex-direction:column}
-.brandText .name{font-weight:900;font-size:16px}
-.brandText .tag{font-size:12px;color:var(--muted)}
+    .brand{display:flex;align-items:center;gap:12px;min-width:260px}
+    .logoWrap{
+      width:44px;height:44px;border-radius:12px;
+      background: linear-gradient(145deg, rgba(125,211,252,.25), rgba(52,211,153,.18));
+      border:1px solid rgba(255,255,255,.14);
+      display:flex;align-items:center;justify-content:center;
+      box-shadow: 0 10px 28px rgba(0,0,0,.25);
+    }
+    .brandText{display:flex;flex-direction:column;line-height:1.05}
+    .brandText .name{font-weight:900;font-size:16px;letter-spacing:.4px}
+    .brandText .tag{font-size:12px;color:var(--muted2)}
 
-.status{
-  display:flex;align-items:center;gap:10px;
-  padding:8px 12px;border-radius:14px;
-  border:1px solid rgba(255,255,255,.12);
-  background:rgba(255,255,255,.04);
-}
-.dot{width:10px;height:10px;border-radius:50%;background:#fbbf24}
+    .status{
+      display:flex;align-items:center;gap:10px;
+      padding:8px 12px;border-radius:14px;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.04);
+      min-width:420px;
+      justify-content:space-between;
+    }
+    .statusLeft{display:flex;align-items:center;gap:10px}
+    .dot{width:10px;height:10px;border-radius:50%}
+    .dot.ok{background:var(--ok)}
+    .dot.warn{background:var(--warn)}
+    .dot.bad{background:var(--bad)}
+    .statusMain{display:flex;flex-direction:column}
+    .statusMain .title{font-weight:800;font-size:13px}
+    .statusMain .sub{font-size:12px;color:var(--muted2);max-width:760px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-.tabs{display:flex;gap:8px}
-.tabBtn{
-  height:36px;padding:0 14px;border-radius:12px;
-  border:1px solid rgba(255,255,255,.12);
-  background:rgba(255,255,255,.05);
-  color:var(--text);
-  font-weight:800;
-  cursor:pointer;
-}
-.tabBtn.active{
-  background:rgba(125,211,252,.15);
-  border-color:rgba(125,211,252,.4);
-}
+    .tabs{display:flex;gap:10px;align-items:center}
+    .tabBtn{
+      height:36px;padding:0 12px;border-radius:12px;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.04);
+      color:var(--text);
+      cursor:pointer;
+      font-weight:900;
+      font-size:13px;
+    }
+    .tabBtn.active{
+      border-color:rgba(125,211,252,.4);
+      background:rgba(125,211,252,.12);
+    }
 
-/* ---------- MAIN LAYOUT ---------- */
-main{
-  flex:1;
-  display:flex;
-  min-height:0;
-}
+    main{
+      flex:1;
+      min-height:0;          /* CRITICAL */
+      display:flex;
+      overflow:hidden;       /* CRITICAL */
+    }
 
-/* ---------- LEFT / CANVAS ---------- */
-.left{
-  flex:1;
-  min-width:0;
-  border-right:1px solid var(--line);
-  display:flex;
-  flex-direction:column;
-}
+    .left{
+      flex:1;
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      border-right:1px solid var(--line);
+      min-height:0;          /* CRITICAL */
+    }
 
-.canvasWrap{
-  position:relative;
-  flex:1;
-  min-height:0;
-  padding:10px;
-}
+    .canvasWrap{
+      position:relative;
+      flex:1;
+      min-height:0;          /* CRITICAL */
+      padding:10px;
+    }
 
-canvas{
-  width:100%;
-  height:100%;
-  border-radius:18px;
-  background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.015));
-  border:1px solid rgba(255,255,255,.12);
-}
+    canvas{
+      width:100%;
+      height:100%;
+      border-radius:18px;
+      background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
+      border:1px solid rgba(255,255,255,.10);
+      box-shadow: 0 18px 55px rgba(0,0,0,.35);
+      display:block;
+    }
 
-/* ---------- HUD ---------- */
-.hud{
-  position:absolute;
-  top:18px;left:18px;
-  display:flex;gap:10px;flex-wrap:wrap;
-  padding:10px 12px;
-  border-radius:16px;
-  background:rgba(0,0,0,.35);
-  border:1px solid rgba(255,255,255,.14);
-}
+    .hud{
+      position:absolute;left:18px;top:18px;
+      display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+      padding:10px 12px;border-radius:16px;
+      background:rgba(0,0,0,.28);
+      border:1px solid rgba(255,255,255,.12);
+      backdrop-filter: blur(10px);
+      max-width: calc(100% - 36px);
+    }
+    .hud label{
+      font-size:12px;color:var(--muted);
+      display:flex;align-items:center;gap:8px;
+      user-select:none;
+      font-weight:800;
+    }
+    .hud input[type="checkbox"]{transform:scale(1.05)}
+    .hud .pill{
+      height:32px;padding:0 10px;border-radius:12px;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.06);
+      display:flex;align-items:center;gap:8px;
+      font-size:12px;color:var(--muted);
+      font-weight:800;
+    }
+    .hud .pill .unit{color:rgba(255,255,255,.40);font-weight:900}
+    .hud input[type="number"]{
+      width:82px;background:transparent;border:none;
+      color:var(--text);font-weight:900;outline:none;text-align:right;
+    }
+    .hud .smallBtn{
+      height:32px;padding:0 10px;border-radius:12px;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.06);
+      color:var(--text);font-weight:900;cursor:pointer;
+    }
+    .hud .smallBtn:hover{background:rgba(255,255,255,.09)}
+    .hud .divider{
+      width:1px;height:26px;background:rgba(255,255,255,.12);
+      margin:0 2px;
+    }
 
-.hud label{font-size:12px;color:var(--muted);font-weight:800}
-.hud .pill{
-  display:flex;align-items:center;gap:6px;
-  padding:6px 10px;border-radius:12px;
-  background:rgba(255,255,255,.08);
-}
-.hud input[type=number]{
-  width:70px;
-  background:none;border:none;
-  color:var(--text);
-  font-weight:900;
-  text-align:right;
-}
-.hud button{
-  height:32px;
-  padding:0 10px;
-  border-radius:12px;
-  background:rgba(255,255,255,.10);
-  border:1px solid rgba(255,255,255,.14);
-  color:var(--text);
-  font-weight:900;
-  cursor:pointer;
-}
+    .right{
+      width:520px;min-width:420px;max-width:720px;
+      display:flex;
+      flex-direction:column;
+      min-height:0;        /* CRITICAL */
+      overflow:hidden;     /* CRITICAL */
+      background:linear-gradient(180deg, rgba(15,26,51,.7), rgba(10,18,34,.7));
+    }
 
-/* ---------- RIGHT PANEL ---------- */
-.right{
-  width:520px;
-  min-width:420px;
-  max-width:720px;
-  display:flex;
-  flex-direction:column;
-  min-height:0;
-}
+    /* ✅ CRITICAL: panes MUST fill height and allow children to flex */
+    .pane{
+      display:none;
+      flex-direction:column;
+      flex:1;
+      min-height:0;
+      overflow:hidden;
+    }
+    .pane.active{
+      display:flex;
+      flex:1;
+      min-height:0;
+      overflow:hidden;
+    }
 
-/* 🔑 FIX: panes must fill height */
-.pane{
-  display:none;
-  flex-direction:column;
-  flex:1;
-  min-height:0;
-}
-.pane.active{
-  display:flex;
-  flex:1;
-  min-height:0;
-}
+    /* ---------- RIGHT PANEL READABILITY FIX ---------- */
+    .controls{
+      padding:16px;
+      border-bottom:1px solid var(--line);
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      flex:0 0 auto;
+    }
 
-/* ---------- CONTROLS ---------- */
-.controls{
-  padding:16px;
-  display:flex;
-  flex-direction:column;
-  gap:12px;
-  border-bottom:1px solid var(--line);
-}
+    .row{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:12px;
+      align-items:stretch;
+    }
+    .row.actions{ grid-template-columns: 1.4fr 1fr 1fr; }
+    .row.full{ grid-template-columns: 1fr; }
 
-.row{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:12px;
-}
-.row.actions{grid-template-columns:1.4fr 1fr 1fr}
+    .file{
+      height:44px;
+      padding:10px 12px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.06);
+      color:rgba(255,255,255,.85);
+      font-weight:800;
+    }
 
-.field{
-  display:flex;
-  flex-direction:column;
-  gap:6px;
-  padding:10px;
-  border-radius:14px;
-  background:rgba(255,255,255,.04);
-  border:1px solid rgba(255,255,255,.12);
-}
-.field label{font-size:12px;color:var(--muted);font-weight:800}
-.field input,.field select{
-  height:38px;
-  background:rgba(0,0,0,.25);
-  border:1px solid rgba(255,255,255,.14);
-  border-radius:12px;
-  color:var(--text);
-  padding:0 12px;
-  font-weight:900;
-}
+    .btn{
+      height:44px;
+      padding:0 14px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.07);
+      color:rgba(255,255,255,.92);
+      font-weight:900;
+      cursor:pointer;
+      letter-spacing:.2px;
+    }
+    .btn:hover{ background:rgba(255,255,255,.10); }
+    .btn:disabled{
+      opacity:.40;
+      cursor:not-allowed;
+      background:rgba(255,255,255,.04);
+    }
 
-/* ---------- NC TOOLBAR ---------- */
-.ncToolbar{
-  display:flex;
-  gap:10px;
-  align-items:center;
-  padding:12px 16px;
-  border-bottom:1px solid var(--line);
-}
+    .field{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      padding:12px 12px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.045);
+      min-width:0;
+    }
 
-.ncToolbar button{
-  height:38px;
-  padding:0 14px;
-  border-radius:12px;
-  border:1px solid rgba(255,255,255,.14);
-  background:rgba(255,255,255,.07);
-  color:var(--text);
-  font-weight:900;
-}
+    .field label{
+      font-size:12px;
+      color:rgba(255,255,255,.72);
+      font-weight:800;
+      letter-spacing:.2px;
+    }
 
-/* 🔑 FIX: NC box height + scroll */
-.ncBox{
-  flex:1;
-  min-height:260px;
-  overflow:auto;
-  padding:14px 16px;
-  font-family:ui-monospace,Consolas,monospace;
-  font-size:13px;
-  line-height:1.55;
-  background:linear-gradient(180deg,rgba(0,0,0,.12),rgba(0,0,0,.25));
-}
+    .field input,
+    .field select{
+      height:40px;
+      width:100%;
+      background:rgba(0,0,0,.22);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:12px;
+      color:rgba(255,255,255,.92);
+      padding:0 12px;
+      outline:none;
+      font-weight:900;
+      font-size:14px;
+    }
+    .field input[type="number"]{ text-align:right; }
+    .field input::placeholder{ color:rgba(255,255,255,.35); font-weight:700; }
 
-/* ---------- NC LINES ---------- */
-.ncLine{
-  display:flex;
-  gap:10px;
-  padding:4px 8px;
-  border-radius:10px;
-}
-.ncLine .ln{width:60px;text-align:right;color:var(--muted)}
-.ncLine.hi{
-  background:rgba(125,211,252,.16);
-  border:1px solid rgba(125,211,252,.3);
-}
+    .ncToolbar{
+      flex:0 0 auto;
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between;
+      padding:12px 16px;
+      border-bottom:1px solid var(--line);
+      background:rgba(255,255,255,.03);
+    }
+    .ncToolbar .leftBtns,
+    .ncToolbar .rightBtns{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
 
-/* ---------- FOOTER ---------- */
-.footerNote{
-  padding:10px 14px;
-  border-top:1px solid var(--line);
-  font-size:12px;
-  color:var(--muted);
-}
-</style>
+    .hint{
+      font-size:12px;
+      color:rgba(255,255,255,.55);
+      font-weight:700;
+    }
+
+    /* ✅ CRITICAL: ncBox must be able to grow AND have a min height */
+    .ncBox{
+      flex:1;
+      min-height:220px;
+      min-width:0;
+      overflow:auto;
+      padding:14px 16px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size:13px;
+      line-height:1.55;
+      color:rgba(255,255,255,.88);
+      background: linear-gradient(180deg, rgba(0,0,0,.10), rgba(0,0,0,.22));
+      scroll-behavior:smooth;
+    }
+
+    .ncLine{
+      display:flex;
+      gap:12px;
+      padding:4px 8px;
+      border-radius:10px;
+    }
+    .ncLine .ln{
+      width:60px;
+      color:rgba(255,255,255,.40);
+      text-align:right;
+      user-select:none;
+      font-weight:800;
+      flex:0 0 auto;
+    }
+    .ncLine .code{
+      white-space:pre;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      min-width:0;
+      flex:1;
+    }
+    .ncLine.hi{
+      background:rgba(125,211,252,.16);
+      border:1px solid rgba(125,211,252,.28);
+    }
+
+    .footerNote{
+      flex:0 0 auto;
+      padding:10px 14px;
+      border-top:1px solid var(--line);
+      color:var(--muted2);
+      font-size:12px;
+    }
+  </style>
 </head>
 
 <body>
 <div class="app">
-
-<header>
-  <div class="brand">
-    <div class="logoWrap">▲</div>
-    <div class="brandText">
-      <div class="name">NorrisCAM</div>
-      <div class="tag">DXF → USB .DAT toolpaths</div>
-    </div>
-  </div>
-
-  <div class="status">
-    <div class="dot"></div>
-    <div>
-      <div style="font-weight:800">Idle</div>
-      <div style="font-size:12px;color:var(--muted)">Import a DXF to begin</div>
-    </div>
-  </div>
-
-  <div class="tabs">
-    <button class="tabBtn active">Main</button>
-    <button class="tabBtn">Options</button>
-  </div>
-</header>
-
-<main>
-  <section class="left">
-    <div class="canvasWrap">
-      <canvas id="c"></canvas>
-
-      <div class="hud">
-        <label><input type="checkbox" checked> Footprint</label>
-
-        <div class="pill">
-          Scale <input type="number" value="100"> %
-        </div>
-        <div class="pill">
-          Rotate <input type="number" value="0"> °
-        </div>
-
-        <button>Apply</button>
-        <button>Fit</button>
-        <button>Reset</button>
+  <header>
+    <div class="brand">
+      <div class="logoWrap" aria-label="NorrisCAM logo">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+          <path d="M4 17l6-10 4 7 2-3 4 6" stroke="rgba(255,255,255,.92)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4 19h16" stroke="rgba(255,255,255,.55)" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="brandText">
+        <div class="name">NorrisCAM</div>
+        <div class="tag">DXF → USB .DAT toolpaths (inches)</div>
       </div>
     </div>
-  </section>
 
-  <section class="right">
-    <div class="pane active">
-
-      <div class="controls">
-        <div class="row actions">
-          <input type="file">
-          <button>Build Toolpath</button>
-          <button>Export .DAT</button>
+    <div class="status">
+      <div class="statusLeft">
+        <div id="statusDot" class="dot warn"></div>
+        <div class="statusMain">
+          <div id="topStatus" class="title">Idle</div>
+          <div id="stats" class="sub">Import a DXF to begin.</div>
         </div>
       </div>
-
-      <div class="ncToolbar">
-        <button>Back (B)</button>
-        <button>Step (S)</button>
-        <button>Play</button>
-        <button>Pause</button>
-      </div>
-
-      <div class="ncBox" id="ncBox">
-        <div class="ncLine">
-          <div class="ln">----</div>
-          <div>DAT will appear here after Build…</div>
-        </div>
-      </div>
-
-      <div class="footerNote">
-        Footprint: X = 15", Y = 20". Home = top-right.
-      </div>
-
     </div>
-  </section>
-</main>
 
+    <div class="tabs">
+      <button id="tabMain" class="tabBtn active" type="button">Main</button>
+      <button id="tabOptions" class="tabBtn" type="button">Options</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="left">
+      <div class="canvasWrap">
+        <canvas id="c"></canvas>
+
+        <div class="hud">
+          <label title="Toggle machine footprint overlay">
+            <input id="showFootprint" type="checkbox" checked />
+            Footprint
+          </label>
+
+          <div class="divider"></div>
+
+          <div class="pill" title="Scale the imported DXF inside NorrisCAM">
+            Scale
+            <input id="scalePct" type="number" value="100" min="1" max="5000" step="1" />
+            <span class="unit">%</span>
+          </div>
+
+          <div class="pill" title="Rotate the imported DXF inside NorrisCAM (degrees)">
+            Rotate
+            <input id="rotDeg" type="number" value="0" min="-360" max="360" step="1" />
+            <span class="unit">°</span>
+          </div>
+
+          <button id="applyTransform" class="smallBtn" type="button" title="Apply Scale + Rotate (keeps view stable)">Apply</button>
+          <button id="fitToMachine" class="smallBtn" type="button" title="Set scale so rotated geometry fits machine travel">Fit</button>
+          <button id="resetTransform" class="smallBtn" type="button" title="Reset Scale=100% and Rotate=0°">Reset</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="right">
+      <div id="paneMain" class="pane active">
+        <div class="controls">
+          <div class="row actions">
+            <input id="file" class="file" type="file" accept=".dxf" />
+            <button id="buildToolpath" class="btn" type="button" disabled>Build Toolpath</button>
+            <button id="exportDat" class="btn" type="button" disabled>Export .DAT</button>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label>Spindle RPM</label>
+              <input id="spindleRPM" type="number" value="12000" min="0" step="100" />
+            </div>
+            <div class="field">
+              <label>Safe Z (in)</label>
+              <input id="safeZ" type="number" value="0.5" step="0.01" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label>Cut Z (depth, in)</label>
+              <input id="cutZ" type="number" value="0.0625" step="0.001" />
+            </div>
+            <div class="field">
+              <label>Stepdown (in)</label>
+              <input id="stepDown" type="number" value="0.0625" step="0.001" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label>Feed XY (ipm)</label>
+              <input id="feedXY" type="number" value="30" step="1" />
+            </div>
+            <div class="field">
+              <label>Feed Z (ipm)</label>
+              <input id="feedZ" type="number" value="20" step="1" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label>Origin</label>
+              <select id="origin">
+                <option value="center" selected>Center</option>
+                <option value="ll">Lower-Left</option>
+                <option value="lr">Lower-Right</option>
+                <option value="ul">Upper-Left</option>
+                <option value="ur">Upper-Right</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Tool comment</label>
+              <input id="toolComment" type="text" value="(T1 - 1/4 endmill, centerline, no comp)" />
+            </div>
+          </div>
+        </div>
+
+        <div class="ncToolbar">
+          <div class="leftBtns">
+            <button id="backBtn" class="btn" type="button" disabled>Back (B)</button>
+            <button id="stepBtn" class="btn" type="button" disabled>Step (S)</button>
+            <button id="playBtn" class="btn" type="button" disabled>Play (Space)</button>
+            <button id="pauseBtn" class="btn" type="button" disabled>Pause</button>
+          </div>
+          <div class="rightBtns">
+            <div class="hint">Reveal from line 1 • Cursor pinned at 0.33</div>
+          </div>
+        </div>
+
+        <!-- ✅ THIS is the NC CODE VIEWER -->
+        <div id="ncBox" class="ncBox">
+          <div class="ncLine">
+            <div class="ln">----</div>
+            <div class="code">DAT will appear here after Build…</div>
+          </div>
+        </div>
+
+        <div class="footerNote">
+          Footprint: X travel = 15" (back↔front), Y travel = 20" (right↔left). HOME dot = top-right.
+        </div>
+      </div>
+
+      <div id="paneOptions" class="pane">
+        <div class="controls">
+          <div class="row">
+            <div class="field">
+              <label>Trace precision</label>
+              <input id="outPrec" type="number" value="0.01" step="0.001" />
+            </div>
+            <div class="field">
+              <label>Snap grid</label>
+              <input id="snapGrid" type="number" value="0.02" step="0.001" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label>Angle tol (deg)</label>
+              <input id="angleTolDeg" type="number" value="14" step="1" />
+            </div>
+            <div class="field">
+              <label>Chain tol</label>
+              <input id="chainTol" type="number" value="0.02" step="0.001" />
+            </div>
+          </div>
+
+          <div class="hint">
+            Options affect chaining + simplification. For loose school tolerance, bump Trace precision to 0.02–0.05.
+          </div>
+        </div>
+
+        <div class="footerNote">
+          Center-zero workflow: keep geometry within ±7.50" (X) and ±10.00" (Y) to avoid overtravel.
+        </div>
+      </div>
+    </section>
+  </main>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
