@@ -1,12 +1,10 @@
 // NorrisCAM — DXF → Toolpath → Step/Play reveal + USB .DAT (G-code)
 //
-// Code preview rules (your choices):
-// - Reveal ONLY up to current line (future hidden)
-// - Reveal begins at line 1 (no special header handling)
-// - Highlighted line scrolls to TOP (smooth)
-// - Show line numbers
-// - Step = every tool move (rapids + cuts)
-// - Play follows + scrolls
+// Fixes requested:
+// 1) When user clicks Build Toolpath, code APPEARS immediately (no empty prompt).
+// 2) Canvas view stays stable (no jumping/zooming away) during build + stepping.
+// 3) Reveal behavior: initially show first chunk; stepping expands reveal as needed.
+// 4) Highlight scrolls to TOP (smooth), line numbers shown, read-only, go-to-line works.
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("c");
@@ -15,23 +13,31 @@ const ctx = canvas.getContext("2d");
 // ---------- State ----------
 let dxfParsed = null;
 
-let previewSegs = [];   // cyan model preview segments
+let previewSegs = [];   // model preview segments (cyan)
 let playback = [];      // toolpath segments [{a,b,mode,ncLineIdx}]
 let moves = [];
 let ncLines = [];
 let lastNC = "";
 
-// stepping is segment-based, but code preview is line-based
-let revealCount = 0;    // segments revealed
-let currentLineIdx = -1; // currently highlighted NC line index
+// Simulation state
+let revealCount = 0;          // number of tool segments revealed
+let currentLineIdx = -1;      // highlighted NC line index
+let shownLineMax = -1;        // maximum NC line index currently visible
 let playTimer = null;
 
-// map for jumping to line
-let lineToLastSegIndex = new Map(); // ncLineIdx -> last segment index that points to it
+// map: ncLineIdx -> last segment index with that ncLineIdx
+let lineToLastSegIndex = new Map();
 
-// view state
+// view state (world->screen)
 const view = { scale: 60, ox: 0, oy: 0, dragging: false, lx: 0, ly: 0 };
 let viewTouched = false;
+
+// View lock (prevents jumping after build)
+let viewLocked = false;
+let lockedView = { scale: view.scale, ox: view.ox, oy: view.oy };
+
+// How many code lines to show immediately after Build
+const INITIAL_CODE_LINES_AFTER_BUILD = 80;
 
 // ---------- UI ----------
 function setStatus(kind, title, detail){
@@ -181,7 +187,7 @@ function boundsOfSegments(segs){
     minX=Math.min(minX,s.a.x,s.b.x);
     minY=Math.min(minY,s.a.y,s.b.y);
     maxX=Math.max(maxX,s.a.x,s.b.x);
-    maxY=Math.max(maxY,s.maxY ?? s.a.y, s.b.y);
+    maxY=Math.max(maxY,s.a.y,s.b.y);
   }
   if(!isFinite(minX)) return { minX:0,minY:0,maxX:1,maxY:1 };
   return { minX,minY,maxX,maxY };
@@ -425,10 +431,7 @@ function buildNC(moves, opts){
   push("G40 (cancel cutter comp)");
   push("G49 (cancel tool length offset)");
   push("G54 (work offset)");
-
-  // ✅ requested: M03 line with spindle speed input
   push(`M3 S${Math.floor(opts.spindleRPM)} (spindle on)`);
-
   push(`G0 ${outZ(opts.safeZ)}`);
 
   let lastF=null;
@@ -510,7 +513,6 @@ function buildPlayback(moves, moveToLine){
     }
   }
 
-  // Build ncLineIdx -> last seg index
   lineToLastSegIndex = new Map();
   for(let si=0; si<segs.length; si++){
     const ln = segs[si].ncLineIdx;
@@ -526,7 +528,12 @@ function escapeHtml(s){
 }
 function pad4(n){ return String(n).padStart(4,"0"); }
 
-function renderNCReveal(highlightIndex=-1){
+/**
+ * Render code from line 0 .. shownLineMax
+ * Highlight currentLineIdx if >=0
+ * Auto-scroll highlighted row to top (smooth)
+ */
+function renderNC(){
   const box=$("ncBox");
 
   if(!ncLines.length){
@@ -535,12 +542,18 @@ function renderNCReveal(highlightIndex=-1){
     return;
   }
 
-  // Reveal ONLY from line 1 up to highlightIndex (or nothing if -1)
-  const maxLine = (highlightIndex>=0) ? highlightIndex : -1;
+  if(shownLineMax < 0){
+    // IMPORTANT: After build we will set shownLineMax so code appears immediately.
+    box.innerHTML = `<div class="row"><div class="ln">----</div><div class="code">Building…</div></div>`;
+    $("ncLineHud").textContent="Line: —";
+    return;
+  }
 
+  const maxLine = Math.min(shownLineMax, ncLines.length-1);
   const html=[];
+
   for(let i=0;i<=maxLine;i++){
-    const isHi = (i===highlightIndex);
+    const isHi = (i===currentLineIdx);
     html.push(
       `<div class="row ${isHi ? "hi" : ""}" data-ln="${i}">
          <div class="ln">${pad4(i+1)}</div>
@@ -549,22 +562,28 @@ function renderNCReveal(highlightIndex=-1){
     );
   }
 
-  // If nothing revealed yet, show a tiny hint line (no header auto-show)
-  if(maxLine < 0){
-    box.innerHTML = `<div class="row"><div class="ln">----</div><div class="code">Press Step (S) to reveal code…</div></div>`;
-    $("ncLineHud").textContent="Line: —";
-    return;
-  }
-
   box.innerHTML = html.join("");
-  $("ncLineHud").textContent = `Line: ${highlightIndex+1}`;
+  $("ncLineHud").textContent = (currentLineIdx>=0) ? `Line: ${currentLineIdx+1}` : `Line: —`;
 
-  // Smooth scroll so highlighted row sits at TOP of ncBox
-  const el = box.querySelector(`[data-ln="${highlightIndex}"]`);
-  if(el){
-    const targetTop = el.offsetTop; // top align
-    box.scrollTo({ top: Math.max(0, targetTop - 2), behavior: "smooth" });
+  if(currentLineIdx>=0){
+    const el = box.querySelector(`[data-ln="${currentLineIdx}"]`);
+    if(el){
+      const targetTop = el.offsetTop;
+      box.scrollTo({ top: Math.max(0, targetTop - 2), behavior: "smooth" });
+    }
   }
+}
+
+// ---------- View lock helpers ----------
+function lockView(){
+  lockedView = { scale: view.scale, ox: view.ox, oy: view.oy };
+  viewLocked = true;
+}
+function applyLockedView(){
+  if(!viewLocked) return;
+  view.scale = lockedView.scale;
+  view.ox = lockedView.ox;
+  view.oy = lockedView.oy;
 }
 
 // ---------- View + Draw ----------
@@ -683,27 +702,24 @@ function fitViewToSegments(segs){
 
   view.ox = w/2 - cx*view.scale;
   view.oy = h/2 + cy*view.scale;
+
+  lockView(); // lock the fitted view so build can't move it
 }
 
-// Canvas stability fix: preserve world point at canvas center through resize/layout changes
-function resizePreserveCenter(){
-  const r0 = canvas.getBoundingClientRect();
-  const cx0 = r0.width/2;
-  const cy0 = r0.height/2;
-  const worldAtCenter = screenToWorld(cx0, cy0);
-
+// Resize: keep canvas crisp but DO NOT change view mapping (prevents jumping)
+function resizeCanvasNoViewShift(){
   const dpr = window.devicePixelRatio || 1;
   const r = canvas.getBoundingClientRect();
   canvas.width = Math.max(1, Math.floor(r.width*dpr));
   canvas.height = Math.max(1, Math.floor(r.height*dpr));
   ctx.setTransform(dpr,0,0,dpr,0,0);
 
-  view.ox = (r.width/2) - worldAtCenter.x*view.scale;
-  view.oy = (r.height/2) + worldAtCenter.y*view.scale;
-
+  // Keep locked view exactly (stability)
+  applyLockedView();
   draw();
 }
-window.addEventListener("resize", resizePreserveCenter);
+
+window.addEventListener("resize", resizeCanvasNoViewShift);
 
 // ---------- Pan/Zoom ----------
 canvas.addEventListener("mousedown",(e)=>{
@@ -714,6 +730,7 @@ window.addEventListener("mouseup",()=>{ view.dragging=false; });
 window.addEventListener("mousemove",(e)=>{
   if(!view.dragging) return;
   viewTouched=true;
+  viewLocked=false; // user takes control
   view.ox += (e.clientX-view.lx);
   view.oy += (e.clientY-view.ly);
   view.lx=e.clientX; view.ly=e.clientY;
@@ -722,6 +739,7 @@ window.addEventListener("mousemove",(e)=>{
 canvas.addEventListener("wheel",(e)=>{
   e.preventDefault();
   viewTouched=true;
+  viewLocked=false; // user takes control
 
   const r=canvas.getBoundingClientRect();
   const mx=e.clientX-r.left;
@@ -767,16 +785,21 @@ function setPlaying(on){
   draw();
 }
 
-function updateCurrentLineFromReveal(){
+function syncCurrentLineFromReveal(){
   if(revealCount<=0){
     currentLineIdx = -1;
-    renderNCReveal(-1);
+    // don’t hide code that’s already shown — keep shownLineMax as-is
+    renderNC();
     return;
   }
   const seg = playback[Math.min(revealCount-1, playback.length-1)];
   const ln = seg?.ncLineIdx;
   currentLineIdx = (typeof ln==="number") ? ln : -1;
-  renderNCReveal(currentLineIdx);
+
+  // Reveal expands as stepping progresses
+  if(currentLineIdx >= 0) shownLineMax = Math.max(shownLineMax, currentLineIdx);
+
+  renderNC();
 }
 
 function step(dir){
@@ -785,7 +808,7 @@ function step(dir){
   if(dir>0) revealCount=Math.min(playback.length, revealCount+1);
   else revealCount=Math.max(0, revealCount-1);
 
-  updateCurrentLineFromReveal();
+  syncCurrentLineFromReveal();
   draw();
 }
 
@@ -817,14 +840,15 @@ function gotoLine(n){
   if(!ncLines.length) return;
   const idx = Math.max(0, Math.min(ncLines.length-1, n-1));
 
-  // Find the last segment whose ncLineIdx <= idx
-  // Prefer exact match; else nearest earlier.
+  // reveal at least up to that line
+  shownLineMax = Math.max(shownLineMax, idx);
+
+  // Find segment position closest at/before that line
   let segIndex = null;
 
   if(lineToLastSegIndex.has(idx)){
     segIndex = lineToLastSegIndex.get(idx);
   } else {
-    // scan backward for nearest earlier line that exists
     for(let i=idx; i>=0; i--){
       if(lineToLastSegIndex.has(i)){
         segIndex = lineToLastSegIndex.get(i);
@@ -834,16 +858,15 @@ function gotoLine(n){
   }
 
   if(segIndex === null){
-    // No move lines yet (only header), but reveal up to idx anyway
-    revealCount = 0;
+    // no move lines yet — just highlight requested line
     currentLineIdx = idx;
-    renderNCReveal(currentLineIdx);
+    renderNC();
     draw();
     return;
   }
 
   revealCount = Math.min(playback.length, segIndex + 1);
-  updateCurrentLineFromReveal();
+  syncCurrentLineFromReveal();
   draw();
 }
 
@@ -868,7 +891,8 @@ $("resetSim").addEventListener("click",()=>{
   setPlaying(false);
   revealCount=0;
   currentLineIdx=-1;
-  renderNCReveal(-1);
+  // keep code shown; just reset tool preview
+  renderNC();
   draw();
 });
 
@@ -925,7 +949,8 @@ $("file").addEventListener("change", async (e)=>{
   previewSegs=segs.map(s=>({a:s.a,b:s.b}));
 
   // clear previous build
-  playback=[]; moves=[]; ncLines=[]; lastNC=""; revealCount=0; currentLineIdx=-1;
+  playback=[]; moves=[]; ncLines=[]; lastNC="";
+  revealCount=0; currentLineIdx=-1; shownLineMax=-1;
   lineToLastSegIndex = new Map();
 
   $("buildToolpath").disabled=false;
@@ -937,10 +962,16 @@ $("file").addEventListener("change", async (e)=>{
   $("play").disabled=true;
   $("pause").disabled=true;
 
-  renderNCReveal(-1);
+  renderNC();
 
-  if(!viewTouched) fitViewToSegments(previewSegs);
-  resizePreserveCenter();
+  if(!viewTouched){
+    fitViewToSegments(previewSegs); // also locks view
+  } else {
+    // user already positioned it — lock current view so build doesn't change it
+    lockView();
+  }
+
+  resizeCanvasNoViewShift();
 
   setStatus("good","Loaded","Geometry ready. Click Build.");
   draw();
@@ -953,6 +984,9 @@ $("buildToolpath").addEventListener("click", ()=>{
   try{
     setPlaying(false);
     setStatus("warn","Building…","Chaining + tool-down paths + DAT");
+
+    // IMPORTANT: force view to remain stable across build
+    if(!viewLocked) lockView();
 
     const opts=readOpts();
     let segs=extractSegments(dxfParsed, opts.outPrec);
@@ -976,9 +1010,13 @@ $("buildToolpath").addEventListener("click", ()=>{
     ncLines=ncArr;
     playback=buildPlayback(moves, moveToLine);
 
-    // reset reveal
+    // reset sim
     revealCount=0;
     currentLineIdx=-1;
+
+    // ✅ KEY FIX: show code immediately after build
+    shownLineMax = Math.min(ncLines.length-1, INITIAL_CODE_LINES_AFTER_BUILD-1);
+    renderNC();
 
     // enable controls
     $("download").disabled=false;
@@ -991,10 +1029,9 @@ $("buildToolpath").addEventListener("click", ()=>{
     $("gotoLine").max = String(ncLines.length);
     $("gotoLine").value = "1";
 
-    renderNCReveal(-1);
-
-    // Keep canvas stable after NC pane changes
-    resizePreserveCenter();
+    // ✅ KEY FIX: do not let canvas jump due to layout changes
+    resizeCanvasNoViewShift();
+    applyLockedView();
 
     setStatus("good","Built",`Paths: ${paths.length} | Moves: ${playback.length} | Press S or Play.`);
     draw();
@@ -1019,7 +1056,8 @@ $("origin").addEventListener("change", ()=>{
   previewSegs=segs.map(s=>({a:s.a,b:s.b}));
 
   // must rebuild toolpath
-  playback=[]; moves=[]; ncLines=[]; lastNC=""; revealCount=0; currentLineIdx=-1;
+  playback=[]; moves=[]; ncLines=[]; lastNC="";
+  revealCount=0; currentLineIdx=-1; shownLineMax=-1;
   lineToLastSegIndex = new Map();
 
   $("download").disabled=true;
@@ -1029,8 +1067,11 @@ $("origin").addEventListener("change", ()=>{
   $("play").disabled=true;
   $("pause").disabled=true;
 
-  renderNCReveal(-1);
-  resizePreserveCenter();
+  renderNC();
+
+  // keep view stable
+  if(!viewLocked) lockView();
+  resizeCanvasNoViewShift();
 
   setStatus("warn","Origin changed","Preview updated — rebuild toolpath.");
   draw();
@@ -1041,9 +1082,10 @@ function init(){
   const r=canvas.getBoundingClientRect();
   view.ox=r.width/2;
   view.oy=r.height/2;
+  lockView();
 
-  renderNCReveal(-1);
+  renderNC();
   setStatus("warn","Idle","Import a DXF to begin.");
-  resizePreserveCenter();
+  resizeCanvasNoViewShift();
 }
 init();
