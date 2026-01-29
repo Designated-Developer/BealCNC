@@ -17,7 +17,7 @@
       --bad:#ff7a7a;
       --stroke:rgba(255,255,255,.08);
       --shadow: 0 14px 40px rgba(0,0,0,.35);
-      --ncW: 300px;
+      --ncW: 360px;
     }
     *{box-sizing:border-box}
     body{
@@ -161,7 +161,7 @@
     .pane{
       display:flex; flex-direction:column;
       border-left:1px solid var(--stroke);
-      min-width: 240px;
+      min-width: 280px;
     }
     .paneHead{
       display:flex; align-items:center; justify-content:space-between;
@@ -186,7 +186,24 @@
       background: rgba(16,31,54,.22);
       flex-wrap:wrap;
     }
-    .ncToolbar .hint{ color:var(--muted); font-size:12px; margin-left:auto; }
+    .mini{
+      display:flex; align-items:center; gap:8px;
+      padding:8px 10px;
+      border-radius:14px;
+      border:1px solid var(--stroke);
+      background: rgba(255,255,255,.06);
+      color: var(--muted);
+      font-weight:800;
+    }
+    .mini input{
+      width:90px;
+      padding:8px 8px;
+      border-radius:10px;
+      border:1px solid var(--stroke);
+      background: var(--panel2);
+      color: var(--ink);
+    }
+
     .ncBox{
       flex:1;
       overflow:auto;
@@ -195,16 +212,32 @@
       font-size:12px;
       line-height:1.55;
       background: rgba(10,18,32,.45);
+      overscroll-behavior: contain;
     }
-    .line{ white-space:pre; }
-    .line.hi{
+
+    .row{
+      display:grid;
+      grid-template-columns: 64px 1fr;
+      align-items:start;
+      gap:10px;
+      padding:2px 0;
+    }
+    .ln{
+      color: rgba(155,176,212,.65);
+      text-align:right;
+      user-select:none;
+    }
+    .code{ white-space:pre; color: rgba(232,238,252,.78); }
+
+    .row.hi{
       background: rgba(125,211,252,.14);
       border:1px solid rgba(125,211,252,.22);
-      border-radius:8px;
-      padding:2px 6px;
-      margin:2px 0;
+      border-radius:10px;
+      padding:6px 8px;
+      margin:4px 0;
     }
-    .line.dim{ color: rgba(232,238,252,.70); }
+    .row.hi .code{ color: rgba(232,238,252,.95); }
+    .row.hi .ln{ color: rgba(125,211,252,.9); }
 
     .simBar{
       display:flex; gap:10px; align-items:center;
@@ -269,6 +302,7 @@
       <div id="paneMain" class="tabPane active">
         <div class="section">
           <h3>Core settings</h3>
+
           <div class="grid2">
             <div>
               <label>Units</label>
@@ -300,9 +334,28 @@
             <div><label>Output Prec (in)</label><input id="outPrec" type="number" step="0.001" value="0.01"></div>
           </div>
 
+          <div class="grid3" style="margin-top:10px;">
+            <div>
+              <label>Spindle RPM</label>
+              <input id="spindleRPM" type="number" step="100" value="12000">
+            </div>
+            <div>
+              <label>Tool</label>
+              <select id="toolName">
+                <option selected>1/4 endmill</option>
+              </select>
+            </div>
+            <div>
+              <label>Controller</label>
+              <select id="controller">
+                <option selected>General i-Carver 40-915 XM1</option>
+              </select>
+            </div>
+          </div>
+
           <div style="margin-top:10px;" class="legend">
             <span class="chip"><span class="sw cut"></span> Cut (red)</span>
-            <span class="chip"><span class="sw rapid"></span> Rapid (dashed)</span>
+            <span class="chip"><span class="sw.rapid sw"></span> Rapid (dashed)</span>
             <span class="chip">S = Step</span>
             <span class="chip">B = Back</span>
             <span class="chip">Space = Play/Pause</span>
@@ -330,7 +383,7 @@
     <!-- RIGHT PANEL -->
     <div class="card">
       <div class="rightGrid">
-        <!-- Canvas side -->
+        <!-- Canvas -->
         <div style="display:flex; flex-direction:column;">
           <div class="paneHead">
             <div class="title">Preview + Step Simulation</div>
@@ -344,7 +397,7 @@
           </div>
         </div>
 
-        <!-- NC side -->
+        <!-- NC -->
         <div class="pane">
           <div class="paneHead">
             <div class="title">DAT (G-code)</div>
@@ -356,7 +409,12 @@
             <button id="step" class="btn ghost" disabled style="padding:10px 12px;">Step (S)</button>
             <button id="play" class="btn ghost" disabled style="padding:10px 12px;">Play</button>
             <button id="pause" class="btn ghost" disabled style="padding:10px 12px;">Pause</button>
-            <span class="hint">NC scroll stays inside this panel</span>
+
+            <div class="mini" title="Go to a specific NC line number">
+              Go to:
+              <input id="gotoLine" type="number" min="1" step="1" value="1">
+              <button id="gotoBtn" class="btn ghost" style="padding:8px 10px;">Jump</button>
+            </div>
           </div>
 
           <div id="ncBox" class="ncBox"></div>
