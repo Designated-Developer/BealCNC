@@ -1,433 +1,178 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>NorrisCAM</title>
-  <style>
-    :root{
-      --bg:#0a1220;
-      --panel:#0f1b2e;
-      --panel2:#0e1a2b;
-      --ink:#e8eefc;
-      --muted:#9bb0d4;
-      --accent:#7dd3fc;
-      --good:#6ee7b7;
-      --warn:#fbbf24;
-      --bad:#ff7a7a;
-      --stroke:rgba(255,255,255,.08);
-      --shadow: 0 14px 40px rgba(0,0,0,.35);
-      --ncW: 360px;
-    }
-    *{box-sizing:border-box}
-    body{
-      margin:0;
-      font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial;
-      background: radial-gradient(1200px 650px at 20% 0%, #132b4f 0%, var(--bg) 55%) fixed;
-      color:var(--ink);
-    }
-    .wrap{
-      display:grid;
-      grid-template-columns: 380px 1fr;
-      gap:14px;
-      padding:14px;
-      min-height:100vh;
-    }
-    .card{
-      background: linear-gradient(180deg, rgba(15,27,46,.96) 0%, rgba(15,27,46,.78) 100%);
-      border:1px solid var(--stroke);
-      border-radius:18px;
-      box-shadow: var(--shadow);
-      overflow:hidden;
-    }
+<meta charset="utf-8">
+<title>NorrisCAM</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
 
-    .left{ padding:14px; display:flex; flex-direction:column; gap:12px; }
-    .brand{
-      display:flex; gap:12px; align-items:center;
-      padding:12px 12px;
-      background: linear-gradient(180deg, rgba(125,211,252,.14), rgba(125,211,252,.06));
-      border:1px solid rgba(125,211,252,.20);
-      border-radius:16px;
-    }
-    .logo{
-      width:44px;height:44px;border-radius:14px;
-      background: radial-gradient(circle at 35% 35%, rgba(125,211,252,.95), rgba(125,211,252,.25));
-      display:grid;place-items:center;
-      border:1px solid rgba(125,211,252,.22);
-      box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
-      flex: 0 0 auto;
-    }
-    .brand h1{ margin:0; font-size:18px; letter-spacing:.3px; }
-    .sub{ margin-top:2px; color:var(--muted); font-size:12px; }
+<style>
+body{
+  margin:0;
+  background:#0a1220;
+  color:#e8eefc;
+  font-family:system-ui,Segoe UI,Roboto,Arial;
+}
+.wrap{
+  display:grid;
+  grid-template-columns:380px 1fr;
+  gap:12px;
+  padding:12px;
+  height:100vh;
+}
+.card{
+  background:#0f1b2e;
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,.08);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.brand{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:12px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.logo{
+  width:42px;height:42px;
+  border-radius:12px;
+  background:#7dd3fc;
+  color:#07101d;
+  font-weight:900;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.brand h1{margin:0;font-size:18px;}
+.sub{font-size:12px;color:#9bb0d4}
 
-    .pill{
-      display:inline-flex; align-items:center; gap:8px;
-      padding:8px 10px; border-radius:999px;
-      border:1px solid var(--stroke);
-      background: rgba(16,31,54,.6);
-      color:var(--muted); font-size:12px;
-      width:100%;
-    }
-    .dot{ width:9px;height:9px;border-radius:999px;background:var(--muted); }
-    .dot.good{ background:var(--good); }
-    .dot.warn{ background:var(--warn); }
-    .dot.bad{ background:var(--bad); }
+.left{
+  padding:12px;
+  gap:10px;
+}
+.fileRow input{width:100%}
+button{
+  border-radius:12px;
+  padding:10px;
+  font-weight:800;
+  border:none;
+  cursor:pointer;
+}
+.primary{background:#7dd3fc;color:#07101d}
+.ghost{
+  background:rgba(255,255,255,.08);
+  color:#e8eefc;
+  border:1px solid rgba(255,255,255,.1);
+}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 
-    .fileRow{
-      display:flex; gap:10px; align-items:center; flex-wrap:wrap;
-      padding:10px; border-radius:14px;
-      border:1px dashed rgba(125,211,252,.28);
-      background: rgba(125,211,252,.06);
-    }
-    .fileRow input[type=file]{ width:100%; color:var(--muted); }
+.section{
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:14px;
+  padding:10px;
+}
+label{font-size:12px;color:#9bb0d4}
+input,select{
+  width:100%;
+  padding:8px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,.1);
+  background:#0a1220;
+  color:#e8eefc;
+}
 
-    .actions{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-    .btn{
-      appearance:none; border:none; border-radius:14px;
-      padding:12px 12px;
-      font-weight:800;
-      cursor:pointer;
-    }
-    .btn.primary{
-      background: var(--accent);
-      color:#07101d;
-      box-shadow: 0 12px 22px rgba(125,211,252,.18);
-    }
-    .btn.ghost{
-      background: rgba(255,255,255,.09);
-      color: var(--ink);
-      border:1px solid var(--stroke);
-    }
-    .btn:disabled{ opacity:.45; cursor:not-allowed; }
-
-    .tabs{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:10px;
-    }
-    .tabBtn{
-      padding:10px 12px;
-      border-radius:14px;
-      border:1px solid var(--stroke);
-      background: rgba(255,255,255,.06);
-      color: var(--muted);
-      font-weight:900;
-      cursor:pointer;
-    }
-    .tabBtn.active{
-      background: rgba(125,211,252,.16);
-      border-color: rgba(125,211,252,.28);
-      color: var(--ink);
-    }
-    .tabPane{ display:none; }
-    .tabPane.active{ display:block; }
-
-    .section{
-      padding:12px;
-      border-radius:16px;
-      border:1px solid var(--stroke);
-      background: rgba(16,31,54,.45);
-      margin-top:12px;
-    }
-    .section h3{
-      margin:0 0 10px 0; font-size:13px; letter-spacing:.3px; color:var(--muted);
-      text-transform: uppercase;
-    }
-    .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-    .grid3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
-    label{ color:var(--muted); font-size:12px; display:block; margin-bottom:6px; }
-    input[type="number"], select{
-      width:100%;
-      padding:10px 10px;
-      border-radius:12px;
-      border:1px solid var(--stroke);
-      background: var(--panel2);
-      color: var(--ink);
-      outline:none;
-    }
-
-    .legend{ display:flex; gap:12px; flex-wrap:wrap; color:var(--muted); font-size:12px; }
-    .chip{ display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; border:1px solid var(--stroke); background: rgba(16,31,54,.35); }
-    .sw{ width:18px; height:3px; border-radius:999px; }
-    .sw.cut{ background: rgba(255,122,122,.9); }
-    .sw.rapid{ background: rgba(122,167,255,.55); }
-
-    .rightGrid{
-      display:grid;
-      grid-template-columns: 1fr var(--ncW);
-      height: calc(100vh - 14px*2);
-      min-height:520px;
-    }
-    .pane{
-      display:flex; flex-direction:column;
-      border-left:1px solid var(--stroke);
-      min-width: 280px;
-    }
-    .paneHead{
-      display:flex; align-items:center; justify-content:space-between;
-      padding:12px 14px;
-      border-bottom:1px solid var(--stroke);
-      background: rgba(16,31,54,.35);
-    }
-    .paneHead .title{ color:var(--muted); font-size:12px; }
-    .paneHead .hud{ display:flex; gap:14px; align-items:center; color:var(--muted); font-size:12px; }
-    .canvasWrap{ position:relative; height:100%; min-height:520px; }
-    canvas{
-      width:100%;
-      height:100%;
-      display:block;
-      background: radial-gradient(900px 500px at 40% 20%, rgba(125,211,252,.06) 0%, rgba(0,0,0,0) 55%);
-    }
-
-    .ncWrap{ display:flex; flex-direction:column; height:100%; }
-    .ncToolbar{
-      display:flex; gap:10px; align-items:center; padding:10px 12px;
-      border-bottom:1px solid var(--stroke);
-      background: rgba(16,31,54,.22);
-      flex-wrap:wrap;
-    }
-    .mini{
-      display:flex; align-items:center; gap:8px;
-      padding:8px 10px;
-      border-radius:14px;
-      border:1px solid var(--stroke);
-      background: rgba(255,255,255,.06);
-      color: var(--muted);
-      font-weight:800;
-    }
-    .mini input{
-      width:90px;
-      padding:8px 8px;
-      border-radius:10px;
-      border:1px solid var(--stroke);
-      background: var(--panel2);
-      color: var(--ink);
-    }
-
-    .ncBox{
-      flex:1;
-      overflow:auto;
-      padding:10px 12px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-      font-size:12px;
-      line-height:1.55;
-      background: rgba(10,18,32,.45);
-      overscroll-behavior: contain;
-    }
-
-    .row{
-      display:grid;
-      grid-template-columns: 64px 1fr;
-      align-items:start;
-      gap:10px;
-      padding:2px 0;
-    }
-    .ln{
-      color: rgba(155,176,212,.65);
-      text-align:right;
-      user-select:none;
-    }
-    .code{ white-space:pre; color: rgba(232,238,252,.78); }
-
-    .row.hi{
-      background: rgba(125,211,252,.14);
-      border:1px solid rgba(125,211,252,.22);
-      border-radius:10px;
-      padding:6px 8px;
-      margin:4px 0;
-    }
-    .row.hi .code{ color: rgba(232,238,252,.95); }
-    .row.hi .ln{ color: rgba(125,211,252,.9); }
-
-    .simBar{
-      display:flex; gap:10px; align-items:center;
-      padding:10px 12px;
-      border-top:1px solid var(--stroke);
-      background: rgba(16,31,54,.22);
-    }
-    .range{ width:100%; }
-
-    @media (max-width:1180px){
-      .rightGrid{ grid-template-columns:1fr; }
-      .pane{ border-left:none; border-top:1px solid var(--stroke); height: 46vh; }
-      .canvasWrap{ height: 54vh; }
-    }
-    @media (max-width:980px){
-      .wrap{ grid-template-columns:1fr; }
-      .rightGrid{ height:auto; }
-    }
-  </style>
+.right{
+  display:grid;
+  grid-template-columns:1fr 300px;
+}
+canvas{
+  width:100%;
+  height:100%;
+  background:#020617;
+}
+.ncBox{
+  flex:1;
+  overflow:auto;
+  font-family:monospace;
+  font-size:12px;
+  padding:10px;
+}
+.line{white-space:pre}
+.hi{
+  background:rgba(125,211,252,.25);
+  border-radius:6px;
+}
+.toolbar{
+  display:flex;
+  gap:6px;
+  padding:8px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+</style>
 </head>
+
 <body>
-  <div class="wrap">
-    <!-- LEFT PANEL -->
-    <div class="card left">
-      <div class="brand">
-        <div class="logo" aria-hidden="true">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <path d="M7 18V6h5.4c2.9 0 4.6 1.6 4.6 3.9 0 1.6-.9 2.8-2.2 3.3 1.8.4 3 1.8 3 3.7 0 2.7-2 4.1-5 4.1H7Z"
-              stroke="rgba(7,16,29,.95)" stroke-width="2" stroke-linecap="round"/>
-          </svg>
-        </div>
-        <div>
-          <h1>NorrisCAM</h1>
-          <div class="sub">DXF → Toolpath → USB-ready .DAT (inches)</div>
-        </div>
+<div class="wrap">
+
+  <!-- LEFT -->
+  <div class="card left">
+    <div class="brand">
+      <div class="logo">NC</div>
+      <div>
+        <h1>NorrisCAM</h1>
+        <div class="sub">DXF → Toolpath → USB .DAT</div>
       </div>
-
-      <div class="fileRow">
-        <input id="file" type="file" accept=".dxf" />
-      </div>
-
-      <div class="pill">
-        <span class="dot" id="statusDot"></span>
-        <span><b id="topStatus">Idle</b> — <span id="stats">Import a DXF to preview instantly.</span></span>
-      </div>
-
-      <div class="actions">
-        <button id="buildToolpath" class="btn primary" disabled>Build Toolpath + DAT</button>
-        <button id="download" class="btn ghost" disabled>Export .dat</button>
-      </div>
-
-      <div class="actions">
-        <button id="fit" class="btn ghost" disabled>Fit View</button>
-        <button id="resetSim" class="btn ghost" disabled>Reset Sim</button>
-      </div>
-
-      <div class="tabs">
-        <button id="tabMain" class="tabBtn active">Main</button>
-        <button id="tabOptions" class="tabBtn">Options</button>
-      </div>
-
-      <div id="paneMain" class="tabPane active">
-        <div class="section">
-          <h3>Core settings</h3>
-
-          <div class="grid2">
-            <div>
-              <label>Units</label>
-              <select id="units">
-                <option value="inch" selected>Inches (G20)</option>
-              </select>
-            </div>
-            <div>
-              <label>XY Origin</label>
-              <select id="origin">
-                <option value="center" selected>Center</option>
-                <option value="ul">Upper-Left</option>
-                <option value="ur">Upper-Right</option>
-                <option value="ll">Lower-Left</option>
-                <option value="lr">Lower-Right</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="grid3" style="margin-top:10px;">
-            <div><label>Safe Z (in)</label><input id="safeZ" type="number" step="0.01" value="0.50"></div>
-            <div><label>Cut Depth (in)</label><input id="cutZ" type="number" step="0.001" value="0.0625"></div>
-            <div><label>Stepdown (in)</label><input id="stepDown" type="number" step="0.001" value="0.0625"></div>
-          </div>
-
-          <div class="grid3" style="margin-top:10px;">
-            <div><label>Feed XY (ipm)</label><input id="feedXY" type="number" step="1" value="30"></div>
-            <div><label>Feed Z (ipm)</label><input id="feedZ" type="number" step="1" value="20"></div>
-            <div><label>Output Prec (in)</label><input id="outPrec" type="number" step="0.001" value="0.01"></div>
-          </div>
-
-          <div class="grid3" style="margin-top:10px;">
-            <div>
-              <label>Spindle RPM</label>
-              <input id="spindleRPM" type="number" step="100" value="12000">
-            </div>
-            <div>
-              <label>Tool</label>
-              <select id="toolName">
-                <option selected>1/4 endmill</option>
-              </select>
-            </div>
-            <div>
-              <label>Controller</label>
-              <select id="controller">
-                <option selected>General i-Carver 40-915 XM1</option>
-              </select>
-            </div>
-          </div>
-
-          <div style="margin-top:10px;" class="legend">
-            <span class="chip"><span class="sw cut"></span> Cut (red)</span>
-            <span class="chip"><span class="sw.rapid sw"></span> Rapid (dashed)</span>
-            <span class="chip">S = Step</span>
-            <span class="chip">B = Back</span>
-            <span class="chip">Space = Play/Pause</span>
-          </div>
-        </div>
-      </div>
-
-      <div id="paneOptions" class="tabPane">
-        <div class="section">
-          <h3>Tracing tolerance</h3>
-          <div class="grid3">
-            <div><label>Snap Grid (in)</label><input id="snapGrid" type="number" step="0.001" value="0.02"></div>
-            <div><label>Angle Tol (deg)</label><input id="angleTolDeg" type="number" step="1" value="12"></div>
-            <div><label>Chain Tol (in)</label><input id="chainTol" type="number" step="0.001" value="0.02"></div>
-          </div>
-          <div style="margin-top:10px; color:var(--muted); font-size:12px;">
-            Used to connect geometry into continuous tool-down chains.
-          </div>
-        </div>
-      </div>
-
-      <input id="toolComment" type="hidden" value="(T1 - 1/4 endmill, centerline, no comp)" />
     </div>
 
-    <!-- RIGHT PANEL -->
-    <div class="card">
-      <div class="rightGrid">
-        <!-- Canvas -->
-        <div style="display:flex; flex-direction:column;">
-          <div class="paneHead">
-            <div class="title">Preview + Step Simulation</div>
-            <div class="hud">
-              <span id="hudMode">Mode: Preview</span>
-              <span id="hudPos">XY: —</span>
-            </div>
-          </div>
-          <div class="canvasWrap">
-            <canvas id="c"></canvas>
-          </div>
-        </div>
+    <div class="fileRow">
+      <input id="file" type="file" accept=".dxf">
+    </div>
 
-        <!-- NC -->
-        <div class="pane">
-          <div class="paneHead">
-            <div class="title">DAT (G-code)</div>
-            <div class="hud"><span id="ncLineHud">Line: —</span></div>
-          </div>
+    <div class="actions">
+      <button id="build" class="primary" disabled>Build Toolpath</button>
+      <button id="export" class="ghost" disabled>Export .dat</button>
+    </div>
 
-          <div class="ncToolbar">
-            <button id="back" class="btn ghost" disabled style="padding:10px 12px;">Back (B)</button>
-            <button id="step" class="btn ghost" disabled style="padding:10px 12px;">Step (S)</button>
-            <button id="play" class="btn ghost" disabled style="padding:10px 12px;">Play</button>
-            <button id="pause" class="btn ghost" disabled style="padding:10px 12px;">Pause</button>
+    <div class="section">
+      <label>Spindle Speed (RPM)</label>
+      <input id="spindle" type="number" value="12000">
+    </div>
 
-            <div class="mini" title="Go to a specific NC line number">
-              Go to:
-              <input id="gotoLine" type="number" min="1" step="1" value="1">
-              <button id="gotoBtn" class="btn ghost" style="padding:8px 10px;">Jump</button>
-            </div>
-          </div>
+    <div class="section">
+      <label>Feed XY (ipm)</label>
+      <input id="feedXY" type="number" value="30">
+      <label>Feed Z (ipm)</label>
+      <input id="feedZ" type="number" value="20">
+    </div>
 
-          <div id="ncBox" class="ncBox"></div>
-
-          <div class="simBar">
-            <input id="scrub" class="range" type="range" min="0" max="1" step="0.001" value="0" disabled />
-          </div>
-        </div>
-      </div>
+    <div class="section">
+      <label>Safe Z (in)</label>
+      <input id="safeZ" type="number" step="0.01" value="0.5">
+      <label>Cut Depth (in)</label>
+      <input id="cutZ" type="number" step="0.001" value="0.0625">
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
-  <script src="app.js"></script>
+  <!-- RIGHT -->
+  <div class="card right">
+    <div>
+      <canvas id="c"></canvas>
+    </div>
+    <div style="display:flex;flex-direction:column">
+      <div class="toolbar">
+        <button id="back" class="ghost" disabled>B</button>
+        <button id="step" class="ghost" disabled>S</button>
+        <button id="play" class="ghost" disabled>▶</button>
+        <button id="pause" class="ghost" disabled>⏸</button>
+      </div>
+      <div id="ncBox" class="ncBox"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
