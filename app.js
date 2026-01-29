@@ -1,19 +1,22 @@
-// NorrisCAM — DXF preview + tolerant toolpath + USB-ready .NC output (inches)
-// Key behavior:
-// - DXF previews instantly after import
-// - Tool stays DOWN across continuous chains (end == next start within Chain Tol)
-// - Retract to Safe Z ONLY when a true rapid reposition is needed
-// - No spindle codes (controller handles spindle)
-// - Student-proof status + NC preview + copy + simulation
+// NorrisCAM — DXF preview + tolerant toolpath + USB-ready .NC (inches)
+// New:
+// - NC preview moved to right (rendered with highlightable lines)
+// - Step button + hotkey "S" steps to next motion line (G0/G1 XY), syncing sim + highlight
+// - Tool stays down across continuous chains; retract only for true rapids
+// - No spindle codes
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("c");
 const ctx = canvas.getContext("2d");
 
 let dxfParsed = null;
-let previewSegs = [];    // {a,b}
-let playback = [];       // sim segments
-let moves = [];
+let previewSegs = [];
+let playback = [];           // sim segments
+let moves = [];              // move objects
+let ncLines = [];            // array of NC lines
+let motionLineIdxs = [];     // NC line indices that represent motion (G0 XY / G1 XY)
+let motionCum = [];          // cumulative distances for each motion step for scrub positioning
+let stepPtr = -1;            // current step index into motionLineIdxs
 let lastNC = "";
 let playing = false;
 
@@ -68,7 +71,7 @@ function collinear(a,b,c,eps){
   return Math.abs((b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)) <= eps;
 }
 
-// ---------- Bulletproof point normalization ----------
+// ----- Point normalization -----
 function xyOf(pt){
   if(!pt) return null;
   if(Array.isArray(pt) && pt.length >= 2 && isFinite(pt[0]) && isFinite(pt[1])){
@@ -85,7 +88,7 @@ function xyOf(pt){
   return null;
 }
 
-// -------- DXF Extract (LINE + polyline + spline fallback) --------
+// ----- DXF extract: LINE + polyline + spline fallback to lines -----
 function extractSegments(dxf){
   const out = [];
   const ents = dxf?.entities || [];
@@ -97,26 +100,18 @@ function extractSegments(dxf){
       continue;
     }
 
-    // We accept ARC/CIRCLE in preview extraction if needed later,
-    // but this build focuses on tolerant traced lines (what you’re using).
     if(e.type === "LWPOLYLINE" || e.type === "POLYLINE"){
       const verts = (e.vertices || [])
-        .map(v => {
-          const p = xyOf(v);
-          if(!p) return null;
-          return { x:p.x, y:p.y };
-        })
+        .map(v => xyOf(v))
         .filter(Boolean);
 
       if(verts.length < 2) continue;
 
       for(let i=0;i<verts.length-1;i++){
-        const p=verts[i], q=verts[i+1];
-        out.push({kind:"line", a:{x:p.x,y:p.y}, b:{x:q.x,y:q.y}});
+        out.push({kind:"line", a:verts[i], b:verts[i+1]});
       }
       if(e.closed){
-        const p=verts[verts.length-1], q=verts[0];
-        out.push({kind:"line", a:{x:p.x,y:p.y}, b:{x:q.x,y:q.y}});
+        out.push({kind:"line", a:verts[verts.length-1], b:verts[0]});
       }
       continue;
     }
@@ -136,7 +131,7 @@ function extractSegments(dxf){
   return out;
 }
 
-// -------- Origin shift --------
+// ----- Origin shift -----
 function boundsOfSegments(segs){
   let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
   for(const s of segs){
@@ -147,9 +142,6 @@ function boundsOfSegments(segs){
   }
   if(!isFinite(minX)) return {minX:0,minY:0,maxX:1,maxY:1};
   return {minX,minY,maxX,maxY};
-}
-function shiftSeg(s, dx, dy){
-  return {kind:"line", a:{x:s.a.x+dx,y:s.a.y+dy}, b:{x:s.b.x+dx,y:s.b.y+dy}};
 }
 function applyOriginShift(segs, origin){
   const b = boundsOfSegments(segs);
@@ -162,10 +154,10 @@ function applyOriginShift(segs, origin){
   else if(origin==="ll"){ dx = -b.minX; dy = -b.minY; }
   else if(origin==="lr"){ dx = -b.maxX; dy = -b.minY; }
 
-  return segs.map(s => shiftSeg(s, dx, dy));
+  return segs.map(s => ({kind:"line", a:{x:s.a.x+dx,y:s.a.y+dy}, b:{x:s.b.x+dx,y:s.b.y+dy}}));
 }
 
-// -------- Snap + chain build + simplify --------
+// ----- Simplify / chain -----
 function mergeCollinear(pathSegs, tol){
   const out=[];
   if(!Array.isArray(pathSegs) || pathSegs.length===0) return out;
@@ -197,14 +189,11 @@ function mergeCollinear(pathSegs, tol){
   return out;
 }
 
-// Build “paths” by chaining snapped endpoints.
-// Then simplify each chain by merging collinear segments.
 function buildPathsFromLines(lines, snapGrid, angleTolDeg, outPrec){
   const minLen = Math.max(outPrec*0.9, snapGrid*0.5);
   const tol = snapGrid * 0.55;
   const angTol = degToRad(angleTolDeg);
 
-  // snap + filter
   const L = lines
     .map(s=>({kind:"line", a:snapPoint(s.a,snapGrid), b:snapPoint(s.b,snapGrid)}))
     .filter(s =>
@@ -212,7 +201,6 @@ function buildPathsFromLines(lines, snapGrid, angleTolDeg, outPrec){
       dist(s.a,s.b) >= minLen
     );
 
-  // adjacency on start point
   const map=new Map();
   const k=(p)=>`${Math.round(p.x/snapGrid)},${Math.round(p.y/snapGrid)}`;
   for(let i=0;i<L.length;i++){
@@ -254,16 +242,12 @@ function buildPathsFromLines(lines, snapGrid, angleTolDeg, outPrec){
     }
 
     const merged = mergeCollinear(chain, snapGrid);
-    if(merged.length){
-      paths.push({segments: merged});
-    }
+    if(merged.length) paths.push({segments: merged});
   }
 
-  // sanity filter
   return paths.filter(p => p?.segments?.length);
 }
 
-// Order paths by nearest travel (reduces rapids)
 function orderPathsNearest(paths){
   const clean = (paths||[]).filter(p => p?.segments?.length);
   if(clean.length<=1) return clean;
@@ -297,12 +281,9 @@ function orderPathsNearest(paths){
   return ordered;
 }
 
-// 🔥 The important part:
-// Merge consecutive paths when they are continuous (end ≈ next start within chainTol).
-// This is what keeps the tool DOWN for continuous chains.
+// Merge paths where end ~ next start => tool stays down
 function mergeContinuousPaths(paths, chainTol){
   if(paths.length <= 1) return paths;
-
   const out=[];
   let cur = paths[0];
 
@@ -312,7 +293,6 @@ function mergeContinuousPaths(paths, chainTol){
     const nextStart = next.segments[0].a;
 
     if(samePt(curEnd, nextStart, chainTol)){
-      // stitch them into a single continuous chain
       cur = { segments: cur.segments.concat(next.segments) };
     } else {
       out.push(cur);
@@ -323,7 +303,7 @@ function mergeContinuousPaths(paths, chainTol){
   return out;
 }
 
-// -------- Moves / NC (tool-down across continuous chains) --------
+// ----- Moves / NC (retract only when needed) -----
 function buildMoves(paths, opts){
   const m=[];
   const depth = Math.abs(opts.totalDepth);
@@ -332,46 +312,29 @@ function buildMoves(paths, opts){
   const depths = [];
   for(let i=1;i<=passCount;i++) depths.push(-Math.min(depth, i*step));
 
-  // State
   let curXY = {x:0,y:0};
   let curZ = opts.safeZ;
 
-  // helpers
   const retract = () => {
     if(curZ !== opts.safeZ){
       m.push({type:"retract", z:opts.safeZ});
       curZ = opts.safeZ;
     }
   };
-  const rapidXY = (x,y) => {
-    m.push({type:"rapidXY", x, y});
-    curXY = {x,y};
-  };
-  const plunge = (z) => {
-    m.push({type:"plunge", z, f:opts.feedZ});
-    curZ = z;
-  };
+  const rapidXY = (x,y) => { m.push({type:"rapidXY", x, y}); curXY={x,y}; };
+  const plunge = (z) => { m.push({type:"plunge", z, f:opts.feedZ}); curZ=z; };
   const setFeedXY = () => m.push({type:"feedXY", f:opts.feedXY});
-  const cutTo = (x,y) => {
-    m.push({type:"cutLine", x, y});
-    curXY = {x,y};
-  };
+  const cutTo = (x,y) => { m.push({type:"cutLine", x, y}); curXY={x,y}; };
 
-  // start safe
   retract();
 
   for(const passZ of depths){
     retract();
-
     for(const p of paths){
       if(!p?.segments?.length) continue;
-
       const start = p.segments[0].a;
 
-      // If we are not already exactly at the start point, we must reposition:
-      // - retract to safeZ
-      // - rapid to start
-      // - plunge to pass depth
+      // reposition only if needed
       if(!samePt(curXY, start, opts.chainTol) || curZ !== passZ){
         retract();
         if(!samePt(curXY, start, opts.chainTol)){
@@ -380,40 +343,41 @@ function buildMoves(paths, opts){
         plunge(passZ);
         setFeedXY();
       } else {
-        // We are already at the start point at depth -> continue cutting without lifting
         setFeedXY();
       }
 
-      // cut segments
       for(const s of p.segments){
         cutTo(s.b.x, s.b.y);
       }
-
-      // IMPORTANT: do NOT retract here.
-      // We only retract when the NEXT move requires a rapid reposition.
-      // (That’s the whole point.)
+      // do NOT retract here
     }
-
-    // end of pass -> retract safe
     retract();
   }
 
   return m;
 }
 
-function buildNC(moves, opts){
+function buildNCWithMap(moves, opts){
   const P = opts.outPrec;
   const g=[];
-  g.push("%");
-  g.push("(NorrisCAM - USB G-code)");
-  g.push(opts.toolComment);
-  g.push("G90 (absolute)");
-  g.push("G94 (feed/min)");
-  g.push("G17 (XY plane)");
-  g.push("G20 (inches)");
-  g.push("G40 (cancel cutter comp)");
-  g.push("G49 (cancel tool length offset)");
-  g.push("G54 (work offset)");
+  const moveToNcLine = new Map(); // map move index -> NC line index
+
+  const push = (line, moveIdx=null) => {
+    const idx = g.length;
+    g.push(line);
+    if(moveIdx !== null) moveToNcLine.set(moveIdx, idx);
+  };
+
+  push("%");
+  push("(NorrisCAM - USB G-code)");
+  push(opts.toolComment);
+  push("G90 (absolute)");
+  push("G94 (feed/min)");
+  push("G17 (XY plane)");
+  push("G20 (inches)");
+  push("G40 (cancel cutter comp)");
+  push("G49 (cancel tool length offset)");
+  push("G54 (work offset)");
 
   let lastF=null;
   let atZ=null;
@@ -422,50 +386,65 @@ function buildNC(moves, opts){
   const outXY=(x,y)=>`X${fmt(x,P)} Y${fmt(y,P)}`;
   const outZ=(z)=>`Z${fmt(z,P)}`;
 
-  for(const m of moves){
+  for(let i=0;i<moves.length;i++){
+    const m = moves[i];
+
     if(m.type==="retract"){
-      if(atZ!==m.z){ g.push(`G0 ${outZ(m.z)}`); atZ=m.z; }
+      if(atZ!==m.z){ push(`G0 ${outZ(m.z)}`, i); atZ=m.z; }
       continue;
     }
     if(m.type==="rapidXY"){
-      if(atXY.x!==m.x || atXY.y!==m.y){ g.push(`G0 ${outXY(m.x,m.y)}`); atXY={x:m.x,y:m.y}; }
+      if(atXY.x!==m.x || atXY.y!==m.y){
+        push(`G0 ${outXY(m.x,m.y)}`, i);
+        atXY={x:m.x,y:m.y};
+      }
       continue;
     }
     if(m.type==="plunge"){
-      if(lastF!==m.f){ g.push(`G1 ${outZ(m.z)} F${fmt(m.f,0.1)}`); lastF=m.f; }
-      else g.push(`G1 ${outZ(m.z)}`);
+      if(lastF!==m.f){
+        push(`G1 ${outZ(m.z)} F${fmt(m.f,0.1)}`, i);
+        lastF=m.f;
+      } else {
+        push(`G1 ${outZ(m.z)}`, i);
+      }
       atZ=m.z;
       continue;
     }
     if(m.type==="feedXY"){
-      if(lastF!==m.f){ g.push(`F${fmt(m.f,0.1)}`); lastF=m.f; }
+      if(lastF!==m.f){ push(`F${fmt(m.f,0.1)}`, i); lastF=m.f; }
       continue;
     }
     if(m.type==="cutLine"){
-      g.push(`G1 ${outXY(m.x,m.y)}`);
+      push(`G1 ${outXY(m.x,m.y)}`, i);
       atXY={x:m.x,y:m.y};
       continue;
     }
   }
 
-  g.push("M30 (end)");
-  g.push("%");
-  return g.join("\n");
+  push("M30 (end)");
+  push("%");
+
+  return {
+    ncText: g.join("\n"),
+    lines: g,
+    moveToNcLine
+  };
 }
 
-// -------- Simulation playback --------
+// ----- Simulation: include mapping to move indices -----
 function buildPlayback(moves){
   const segs=[];
   let cur={x:0,y:0};
   let cum=0;
 
-  for(const m of moves){
+  for(let i=0;i<moves.length;i++){
+    const m=moves[i];
     if(m.type==="rapidXY" || m.type==="cutLine"){
       const mode = (m.type==="cutLine") ? "CUT" : "RAPID";
       const a={...cur}, b={x:m.x,y:m.y};
       const len=Math.hypot(b.x-a.x,b.y-a.y);
       cum+=len;
-      segs.push({kind:"line",mode,a,b,len,cum});
+      segs.push({kind:"line",mode,a,b,len,cum, moveIdx:i});
       cur=b;
     }
   }
@@ -490,7 +469,76 @@ function pointAtT(t){
   return { x: s.a.x + (s.b.x-s.a.x)*u, y: s.a.y + (s.b.y-s.a.y)*u, mode: s.mode };
 }
 
-// -------- Drawing / view --------
+// ----- Render NC with highlight -----
+function escapeHtml(s){
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function renderNC(highlightLineIndex = -1){
+  const box = $("ncBox");
+  if(!ncLines.length){
+    box.innerHTML = `<div class="line dim">NC will appear here after Build…</div>`;
+    $("ncLineHud").textContent = "Line: —";
+    return;
+  }
+
+  const parts = [];
+  for(let i=0;i<ncLines.length;i++){
+    const cls = (i===highlightLineIndex) ? "line hi" : "line dim";
+    parts.push(`<div class="${cls}" data-ln="${i}">${escapeHtml(ncLines[i])}</div>`);
+  }
+  box.innerHTML = parts.join("");
+
+  if(highlightLineIndex >= 0){
+    $("ncLineHud").textContent = `Line: ${highlightLineIndex + 1}`;
+    const el = box.querySelector(`[data-ln="${highlightLineIndex}"]`);
+    if(el) el.scrollIntoView({block:"center"});
+  } else {
+    $("ncLineHud").textContent = "Line: —";
+  }
+}
+
+function setStepToPlaybackIndex(playIdx){
+  // convert playback index -> scrub fraction
+  if(!playback.length) return;
+  const total = playback[playback.length-1].cum || 1;
+  const targetCum = playback[playIdx].cum;
+  const t = Math.min(1, Math.max(0, targetCum / total));
+  $("scrub").value = String(t);
+  draw();
+}
+
+// Build motion stepping arrays:
+// motion steps = playback segments (each corresponds to a motion move) + their NC line
+function rebuildMotionSteps(moveToNcLine){
+  motionLineIdxs = [];
+  motionCum = [];
+
+  for(const seg of playback){
+    const ln = moveToNcLine.get(seg.moveIdx);
+    if(typeof ln === "number"){
+      motionLineIdxs.push(ln);
+      motionCum.push(seg.cum);
+    }
+  }
+  stepPtr = -1;
+  renderNC(-1);
+}
+
+// Step forward to next motion
+function stepOnce(){
+  if(!playback.length || !motionLineIdxs.length) return;
+
+  stepPtr = Math.min(motionLineIdxs.length - 1, stepPtr + 1);
+
+  // find playback index for this stepPtr (1:1)
+  const playIdx = stepPtr; // because arrays built from playback in order
+  setStepToPlaybackIndex(playIdx);
+
+  const ln = motionLineIdxs[stepPtr];
+  renderNC(ln);
+}
+
+// ----- Drawing -----
 function resize(){
   const dpr=window.devicePixelRatio||1;
   const r=canvas.getBoundingClientRect();
@@ -558,7 +606,6 @@ function drawPreviewGeometry(){
 function drawToolpath(){
   if(!playback.length) return;
 
-  // rapids
   ctx.save();
   ctx.strokeStyle="rgba(122,167,255,0.65)";
   ctx.lineWidth=2;
@@ -570,7 +617,6 @@ function drawToolpath(){
   }
   ctx.restore();
 
-  // cuts
   ctx.save();
   ctx.strokeStyle="rgba(255,122,122,0.92)";
   ctx.lineWidth=2;
@@ -608,7 +654,7 @@ function draw(){
   }
 }
 
-// -------- Pan/Zoom --------
+// ----- Pan/Zoom -----
 canvas.addEventListener("mousedown",(e)=>{ view.dragging=true; view.lx=e.clientX; view.ly=e.clientY; });
 window.addEventListener("mouseup",()=>{ view.dragging=false; });
 window.addEventListener("mousemove",(e)=>{
@@ -631,12 +677,12 @@ canvas.addEventListener("wheel",(e)=>{
   draw();
 },{passive:false});
 
-// -------- UI --------
+// ----- UI wiring -----
 $("file").addEventListener("change", async (e)=>{
   const f=e.target.files?.[0];
   if(!f) return;
 
-  setStatus("warn", "Loading…", f.name);
+  setStatus("warn","Loading…", f.name);
 
   try{
     const text = await f.text();
@@ -653,7 +699,7 @@ $("file").addEventListener("change", async (e)=>{
   let segs = extractSegments(dxfParsed);
 
   if(!segs.length){
-    setStatus("bad","No supported geometry","Need LINE / (polyline) / spline points.");
+    setStatus("bad","No supported geometry","Need LINE / POLYLINE / SPLINE points.");
     alert("No usable geometry extracted. Re-export DXF as R12/ASCII or explode polylines.");
     return;
   }
@@ -664,14 +710,22 @@ $("file").addEventListener("change", async (e)=>{
   playback = [];
   moves = [];
   lastNC = "";
-  $("ncPreview").value = "";
+  ncLines = [];
+  motionLineIdxs = [];
+  motionCum = [];
+  stepPtr = -1;
 
   $("buildToolpath").disabled = false;
   $("download").disabled = true;
   $("copyNC").disabled = true;
-
   $("fit").disabled = false;
+  $("step").disabled = true;
+  $("play").disabled = true;
+  $("pause").disabled = true;
+  $("scrub").disabled = true;
+  $("scrub").value = "0";
 
+  renderNC(-1);
   fitViewToSegments(previewSegs);
   setStatus("good","Loaded", `Segments extracted: ${segs.length}. Click Build.`);
   draw();
@@ -684,16 +738,13 @@ $("buildToolpath").addEventListener("click", ()=>{
   }
 
   try{
-    setStatus("warn","Building…","Creating chains + NC output");
+    setStatus("warn","Building…","Chaining + NC + step map");
     const opts=readOpts();
 
     let segs = extractSegments(dxfParsed);
     segs = applyOriginShift(segs, opts.origin);
-
-    // lines only for tolerant traced output
     const lines = segs.filter(s=>s.kind==="line");
 
-    // build paths, order, then merge continuous (tool-down)
     let paths = buildPathsFromLines(lines, opts.snapGrid, opts.angleTolDeg, opts.outPrec);
     paths = orderPathsNearest(paths);
     paths = mergeContinuousPaths(paths, opts.chainTol);
@@ -705,21 +756,27 @@ $("buildToolpath").addEventListener("click", ()=>{
     }
 
     moves = buildMoves(paths, opts);
-    lastNC = buildNC(moves, opts);
-    playback = buildPlayback(moves);
 
-    $("ncPreview").value = lastNC;
+    const { ncText, lines: linesArr, moveToNcLine } = buildNCWithMap(moves, opts);
+    lastNC = ncText;
+    ncLines = linesArr;
+
+    playback = buildPlayback(moves);
+    rebuildMotionSteps(moveToNcLine);
 
     $("download").disabled = false;
     $("copyNC").disabled = false;
+    $("step").disabled = false;
     $("play").disabled = false;
     $("pause").disabled = false;
     $("scrub").disabled = false;
     $("scrub").value = "0";
     playing = false;
 
-    const ncLines = lastNC.split("\n").length;
-    setStatus("good","Built", `Paths: ${paths.length} | NC lines: ${ncLines} | Tool-down chaining ON`);
+    renderNC(-1);
+
+    const ncCount = ncLines.length;
+    setStatus("good","Built", `Paths: ${paths.length} | NC lines: ${ncCount} | Step: ${motionLineIdxs.length} moves`);
     draw();
   }catch(err){
     console.error(err);
@@ -744,7 +801,7 @@ $("copyNC").addEventListener("click", async ()=>{
     await navigator.clipboard.writeText(lastNC);
     setStatus("good","Copied","NC copied to clipboard");
   }catch{
-    alert("Copy failed (browser permissions). You can still select/copy from the NC preview box.");
+    alert("Copy failed. You can still select/copy from the NC panel.");
   }
 });
 
@@ -767,19 +824,49 @@ $("origin").addEventListener("change", ()=>{
   previewSegs = segs.map(s=>({a:s.a,b:s.b}));
 
   playback=[]; moves=[]; lastNC="";
-  $("ncPreview").value = "";
+  ncLines=[]; motionLineIdxs=[]; motionCum=[]; stepPtr=-1;
+
   $("download").disabled=true;
   $("copyNC").disabled=true;
-  $("play").disabled=true; $("pause").disabled=true; $("scrub").disabled=true;
+  $("step").disabled=true;
+  $("play").disabled=true;
+  $("pause").disabled=true;
+  $("scrub").disabled=true;
+  $("scrub").value="0";
+
+  renderNC(-1);
 
   fitViewToSegments(previewSegs);
   setStatus("warn","Origin changed","Preview updated — rebuild toolpath for NC");
   draw();
 });
 
+// Step button + hotkey S
+$("step").addEventListener("click", ()=>{
+  playing = false;
+  stepOnce();
+});
+window.addEventListener("keydown", (e)=>{
+  if(e.key === "s" || e.key === "S"){
+    if($("step").disabled) return;
+    // don’t trigger while typing in inputs
+    const t = document.activeElement?.tagName?.toLowerCase();
+    if(t === "input" || t === "select" || t === "textarea") return;
+    e.preventDefault();
+    playing = false;
+    stepOnce();
+  }
+});
+
 $("play").addEventListener("click", ()=>{ if(playback.length) playing=true; });
 $("pause").addEventListener("click", ()=>{ playing=false; });
-$("scrub").addEventListener("input", ()=>{ playing=false; draw(); });
+$("scrub").addEventListener("input", ()=>{
+  playing=false;
+  draw();
+  // when scrubbing manually, turn off highlight (keeps it simple)
+  renderNC(-1);
+  $("ncLineHud").textContent = "Line: —";
+});
 
 function tick(){
   if(playing && playback.length){
@@ -793,11 +880,12 @@ function tick(){
 }
 
 function init(){
-  resize();
   const r=canvas.getBoundingClientRect();
   view.ox = r.width/2;
   view.oy = r.height/2;
+  renderNC(-1);
   setStatus("warn","Idle","Import a DXF to begin.");
+  resize();
   tick();
 }
 init();
