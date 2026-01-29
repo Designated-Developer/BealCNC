@@ -1,53 +1,51 @@
-// NorrisCAM — UPDATED JS (Machine Footprint + Home + Overtravel Warning)
-// - Adds a toggleable machine footprint overlay (dashed faint gray)
-// - Home corner: BACK RIGHT
-// - Travel: X = 15" (back -> front), Y = 20" (right -> left)
-// - Work zero assumed at CENTER of machine footprint (since you set 0,0 at center of stock)
-// - Warn-only if toolpath exceeds footprint (does NOT block export)
-// - Keeps the model view stable (no re-fit on Build/Step/Play)
+// NorrisCAM — UPDATED (Footprint always works + Internal Scaling)
+// Machine: General International i-Carver 40-915 XM1 CNC Router
+// Home: back-right
+// Travel: X = 15" (back↔front), Y = 20" (right↔left)
+// Workflow: center of stock (WCS 0,0 at stock center)
+// Behavior:
+// - Footprint overlay toggle (dashed faint gray) ALWAYS renders (HTML checkbox)
+// - DXF can be scaled inside the program (Scale % + Apply + Fit)
+// - View does NOT jump when building toolpath (no re-fit on build/step/play)
+// - Tool stays down for continuous chains; rapids retract to Safe Z
+// - NC reveal: reveal from line 1, pinned cursor @ 0.33, page never scrolls
 
 const NC_PIN_FRACTION = 0.33;
 
 // Machine footprint (inches)
 const MACHINE_X_TRAVEL = 15; // X: back <-> front
 const MACHINE_Y_TRAVEL = 20; // Y: right <-> left
-
-// With "center of stock" workflow, we assume WCS (0,0) is centered in the machine footprint.
-// That means machine coordinates are simply part coords shifted by half-travel.
-const MACHINE_CENTER_SHIFT = {
-  x: MACHINE_X_TRAVEL / 2,
-  y: MACHINE_Y_TRAVEL / 2
-};
+const MACHINE_CENTER_SHIFT = { x: MACHINE_X_TRAVEL / 2, y: MACHINE_Y_TRAVEL / 2 };
 
 const $ = (id) => document.getElementById(id);
 
 const canvas = $("c");
 const ctx = canvas.getContext("2d");
 
+// DXF + geometry state
 let dxfParsed = null;
+let baseGeomSegs = [];      // origin-shifted, UN-scaled segments
+let geomSegs = [];          // scaled segments (display + toolpath basis)
+let currentScale = 1.0;
 
-// geometry (for display) and toolpath (for stepping)
-let geomSegs = [];     // DXF tessellated line segments (blue)
-let toolSegs = [];     // toolpath segments [{a,b,mode,ncLineIdx,outOfBounds?}] for reveal preview
-let ncLines = [];      // string[]
-let ncText = "";       // full program text
+// Toolpath + NC state
+let toolSegs = [];
+let ncLines = [];
+let ncText = "";
 
-// reveal state
+// Reveal state
 let revealSegCount = 0;
 let currentNCLine = -1;
 let shownNCMax = -1;
 let playTimer = null;
 
-// view state
+// View state (keep stable)
 const view = { scale: 50, ox: 0, oy: 0 };
 let viewLocked = false;
 let lockedView = { scale: view.scale, ox: view.ox, oy: view.oy };
 let userTouchedView = false;
 
-// Machine overlay state
-let showMachineOverlay = false;
-
-// ---------- UI helpers ----------
+// ---------------- UI ----------------
 function setStatus(kind, title, detail) {
   const dot = $("statusDot");
   const t = $("topStatus");
@@ -58,6 +56,23 @@ function setStatus(kind, title, detail) {
     dot.classList.remove("ok", "bad", "warn");
     dot.classList.add(kind || "warn");
   }
+}
+
+function enableAfterImport(enabled) {
+  $("buildToolpath").disabled = !enabled;
+  $("exportDat").disabled = true;
+  $("stepBtn").disabled = true;
+  $("backBtn").disabled = true;
+  $("playBtn").disabled = true;
+  $("pauseBtn").disabled = true;
+}
+
+function enableAfterBuild(enabled) {
+  $("exportDat").disabled = !enabled;
+  $("stepBtn").disabled = !enabled;
+  $("backBtn").disabled = !enabled;
+  $("playBtn").disabled = !enabled;
+  $("pauseBtn").disabled = !enabled;
 }
 
 function readOpts() {
@@ -73,29 +88,10 @@ function readOpts() {
   const origin = $("origin").value || "center";
   const toolComment = $("toolComment").value || "(T1 - 1/4 endmill, centerline, no comp)";
   const rpm = Math.max(0, Math.floor(Number($("spindleRPM").value || 12000)));
-
   return { safeZ, depth, stepDown, feedXY, feedZ, outPrec, snapGrid, angleTolDeg, chainTol, origin, toolComment, rpm };
 }
 
-function enableAfterImport(enabled) {
-  $("buildToolpath").disabled = !enabled;
-  $("exportDat").disabled = true;
-
-  $("stepBtn").disabled = true;
-  $("backBtn").disabled = true;
-  $("playBtn").disabled = true;
-  $("pauseBtn").disabled = true;
-}
-
-function enableAfterBuild(enabled) {
-  $("exportDat").disabled = !enabled;
-  $("stepBtn").disabled = !enabled;
-  $("backBtn").disabled = !enabled;
-  $("playBtn").disabled = !enabled;
-  $("pauseBtn").disabled = !enabled;
-}
-
-// ---------- math / formatting ----------
+// ---------------- Math helpers ----------------
 function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 function samePt(a, b, tol) { return Math.abs(a.x - b.x) <= tol && Math.abs(a.y - b.y) <= tol; }
 function snapPoint(p, g) { return { x: Math.round(p.x / g) * g, y: Math.round(p.y / g) * g }; }
@@ -119,6 +115,13 @@ function bounds(segs) {
   return { minX, minY, maxX, maxY };
 }
 
+function scaleSegs(segs, factor) {
+  return segs.map(s => ({
+    a: { x: s.a.x * factor, y: s.a.y * factor },
+    b: { x: s.b.x * factor, y: s.b.y * factor }
+  }));
+}
+
 function applyOriginShift(segs, origin) {
   const b = bounds(segs);
   const cx = (b.minX + b.maxX) / 2;
@@ -131,10 +134,13 @@ function applyOriginShift(segs, origin) {
   else if (origin === "ul") { dx = -b.minX; dy = -b.maxY; }
   else if (origin === "ur") { dx = -b.maxX; dy = -b.maxY; }
 
-  return segs.map(s => ({ a: { x: s.a.x + dx, y: s.a.y + dy }, b: { x: s.b.x + dx, y: s.b.y + dy } }));
+  return segs.map(s => ({
+    a: { x: s.a.x + dx, y: s.a.y + dy },
+    b: { x: s.b.x + dx, y: s.b.y + dy }
+  }));
 }
 
-// ---------- DXF parsing ----------
+// ---------------- DXF parsing ----------------
 function xyOf(v) {
   if (!v) return null;
   if (typeof v.x === "number" && typeof v.y === "number") return { x: v.x, y: v.y };
@@ -203,9 +209,7 @@ function extractSegments(dxf, outPrec) {
     if (e.type === "CIRCLE") {
       const c = xyOf(e.center);
       const r = Number(e.radius);
-      if (c && isFinite(r) && r > 0) {
-        out.push(...tessArc(c, r, 0, 2 * Math.PI, outPrec));
-      }
+      if (c && isFinite(r) && r > 0) out.push(...tessArc(c, r, 0, 2 * Math.PI, outPrec));
       continue;
     }
 
@@ -222,7 +226,7 @@ function extractSegments(dxf, outPrec) {
   return out;
 }
 
-// ---------- view / canvas ----------
+// ---------------- View / canvas ----------------
 function lockView() {
   lockedView = { scale: view.scale, ox: view.ox, oy: view.oy };
   viewLocked = true;
@@ -264,13 +268,9 @@ function fitViewOnce(segs) {
 
 function w2s(p) { return { x: p.x * view.scale + view.ox, y: -p.y * view.scale + view.oy }; }
 
-// pan/zoom
+// Pan/zoom
 let dragging = false, lastX = 0, lastY = 0;
-canvas.addEventListener("mousedown", (e) => {
-  dragging = true;
-  lastX = e.clientX;
-  lastY = e.clientY;
-});
+canvas.addEventListener("mousedown", (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
 window.addEventListener("mouseup", () => dragging = false);
 window.addEventListener("mousemove", (e) => {
   if (!dragging) return;
@@ -301,32 +301,23 @@ canvas.addEventListener("wheel", (e) => {
   draw();
 }, { passive: false });
 
-// ---------- machine overlay (footprint + home) ----------
-function machineRectInPartCoords() {
-  // Machine 0..X, 0..Y in machine coords. WCS (part 0,0) assumed at machine center.
-  // Therefore, machine bounds in part coords are:
-  // X: [-X/2 .. +X/2], Y: [-Y/2 .. +Y/2]
-  return {
-    minX: -MACHINE_CENTER_SHIFT.x,
-    maxX: +MACHINE_CENTER_SHIFT.x,
-    minY: -MACHINE_CENTER_SHIFT.y,
-    maxY: +MACHINE_CENTER_SHIFT.y
-  };
-}
-
+// ---------------- Machine overlay ----------------
 function drawMachineOverlay() {
-  if (!showMachineOverlay) return;
+  if (!$("showFootprint").checked) return;
 
-  const R = machineRectInPartCoords();
+  // With center-zero workflow, machine bounds in part coords:
+  // X: [-X/2 .. +X/2], Y: [-Y/2 .. +Y/2]
+  const minX = -MACHINE_X_TRAVEL / 2;
+  const maxX = +MACHINE_X_TRAVEL / 2;
+  const minY = -MACHINE_Y_TRAVEL / 2;
+  const maxY = +MACHINE_Y_TRAVEL / 2;
 
-  const p1 = w2s({ x: R.minX, y: R.minY });
-  const p2 = w2s({ x: R.maxX, y: R.minY });
-  const p3 = w2s({ x: R.maxX, y: R.maxY });
-  const p4 = w2s({ x: R.minX, y: R.maxY });
+  const p1 = w2s({ x: minX, y: minY });
+  const p2 = w2s({ x: maxX, y: minY });
+  const p3 = w2s({ x: maxX, y: maxY });
+  const p4 = w2s({ x: minX, y: maxY });
 
   ctx.save();
-
-  // dashed faint gray
   ctx.strokeStyle = "rgba(255,255,255,0.18)";
   ctx.lineWidth = 2;
   ctx.setLineDash([7, 7]);
@@ -341,62 +332,47 @@ function drawMachineOverlay() {
 
   ctx.setLineDash([]);
 
-  // Home marker: BACK RIGHT corner = machine (0,0)
-  // machine (0,0) corresponds to part (-X/2, -Y/2)
-  const homeW = { x: -MACHINE_CENTER_SHIFT.x, y: -MACHINE_CENTER_SHIFT.y };
-  const homeS = w2s(homeW);
-
-  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  // Home marker: back-right (machine 0,0) corresponds to part (-X/2, -Y/2)
+  const home = w2s({ x: minX, y: minY });
+  ctx.fillStyle = "rgba(255,255,255,0.88)";
   ctx.beginPath();
-  ctx.arc(homeS.x, homeS.y, 5, 0, Math.PI * 2);
+  ctx.arc(home.x, home.y, 5, 0, Math.PI * 2);
   ctx.fill();
 
-  // "HOME" label
   ctx.font = "bold 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-  ctx.fillStyle = "rgba(255,255,255,0.75)";
-  ctx.fillText("HOME (Back Right)", homeS.x + 10, homeS.y - 8);
+  ctx.fillStyle = "rgba(255,255,255,0.70)";
+  ctx.fillText("HOME (Back Right)", home.x + 10, home.y - 8);
 
-  // Axis hint (screen-space): +X is back->front (toward front) => draw arrow DOWN
-  // +Y is right->left => draw arrow LEFT
-  const ax = { x: homeS.x + 90, y: homeS.y + 45 };
-  // +X arrow (down)
+  // axis hints (simple, not confusing)
+  const ax = { x: home.x + 110, y: home.y + 55 };
+
+  // +X goes back->front => draw arrow DOWN on screen
   ctx.strokeStyle = "rgba(255,255,255,0.35)";
   ctx.lineWidth = 2;
-
-  ctx.beginPath();
-  ctx.moveTo(ax.x, ax.y);
-  ctx.lineTo(ax.x, ax.y + 40);
-  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ax.x, ax.y); ctx.lineTo(ax.x, ax.y + 40); ctx.stroke();
   ctx.fillStyle = "rgba(255,255,255,0.55)";
   ctx.beginPath();
   ctx.moveTo(ax.x, ax.y + 40);
   ctx.lineTo(ax.x - 5, ax.y + 30);
   ctx.lineTo(ax.x + 5, ax.y + 30);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,0.55)";
-  ctx.fillText("+X (front)", ax.x + 8, ax.y + 38);
+  ctx.closePath(); ctx.fill();
+  ctx.fillText("+X (front)", ax.x + 10, ax.y + 38);
 
-  // +Y arrow (left)
+  // +Y goes right->left => arrow LEFT
   ctx.strokeStyle = "rgba(255,255,255,0.35)";
-  ctx.beginPath();
-  ctx.moveTo(ax.x, ax.y);
-  ctx.lineTo(ax.x - 40, ax.y);
-  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ax.x, ax.y); ctx.lineTo(ax.x - 40, ax.y); ctx.stroke();
   ctx.fillStyle = "rgba(255,255,255,0.55)";
   ctx.beginPath();
   ctx.moveTo(ax.x - 40, ax.y);
   ctx.lineTo(ax.x - 30, ax.y - 5);
   ctx.lineTo(ax.x - 30, ax.y + 5);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,0.55)";
-  ctx.fillText("+Y (left)", ax.x - 74, ax.y - 6);
+  ctx.closePath(); ctx.fill();
+  ctx.fillText("+Y (left)", ax.x - 78, ax.y - 6);
 
   ctx.restore();
 }
 
-// ---------- drawing ----------
+// ---------------- Drawing ----------------
 function drawGrid() {
   const r = canvas.getBoundingClientRect();
   const w = r.width, h = r.height;
@@ -432,7 +408,7 @@ function drawToolReveal() {
   ctx.save();
   ctx.strokeStyle = "rgba(122,167,255,0.35)";
   ctx.lineWidth = 2;
-  ctx.setLineDash([6,6]);
+  ctx.setLineDash([6, 6]);
   for (let i = 0; i < n; i++) {
     const s = toolSegs[i];
     if (s.mode !== "RAPID") continue;
@@ -441,7 +417,7 @@ function drawToolReveal() {
   }
   ctx.restore();
 
-  // cuts (red) + out-of-bounds highlight (orange)
+  // cuts (red) + out-of-bounds (orange)
   ctx.save();
   ctx.lineWidth = 2;
   ctx.setLineDash([]);
@@ -457,145 +433,139 @@ function drawToolReveal() {
 
 function draw() {
   const r = canvas.getBoundingClientRect();
-  ctx.clearRect(0,0,r.width,r.height);
+  ctx.clearRect(0, 0, r.width, r.height);
   drawGrid();
-  drawMachineOverlay(); // behind geometry + tool
+  drawMachineOverlay();
   drawGeom();
   drawToolReveal();
 }
 
-// ---------- toolpath planning ----------
-function angle(a,b){ return Math.atan2(b.y-a.y,b.x-a.x); }
-function normAng(x){ while(x<-Math.PI)x+=2*Math.PI; while(x>Math.PI)x-=2*Math.PI; return x; }
-function degToRad(d){ return d*Math.PI/180; }
+// ---------------- Toolpath planning ----------------
+function angle(a, b) { return Math.atan2(b.y - a.y, b.x - a.x); }
+function normAng(x) { while (x < -Math.PI) x += 2 * Math.PI; while (x > Math.PI) x -= 2 * Math.PI; return x; }
+function degToRad(d) { return d * Math.PI / 180; }
 
 function mergeCollinear(chain, tol) {
   const out = [];
-  const eps = Math.max(1e-12, tol*tol);
-  function collinear(a,b,c){
-    return Math.abs((b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)) <= eps;
+  const eps = Math.max(1e-12, tol * tol);
+  function collinear(a, b, c) {
+    return Math.abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) <= eps;
   }
-  let i=0;
-  while(i<chain.length){
+  let i = 0;
+  while (i < chain.length) {
     let a = chain[i].a, b = chain[i].b;
-    let j = i+1;
-    while(j<chain.length){
+    let j = i + 1;
+    while (j < chain.length) {
       const n = chain[j];
-      if(!samePt(b,n.a,tol)) break;
-      if(!collinear(a,b,n.b)) break;
+      if (!samePt(b, n.a, tol)) break;
+      if (!collinear(a, b, n.b)) break;
       b = n.b;
       j++;
     }
-    out.push({a,b});
-    i=j;
+    out.push({ a, b });
+    i = j;
   }
   return out;
 }
 
-function buildPaths(lines, opts){
+function buildPaths(lines, opts) {
   const g = opts.snapGrid;
-  const tol = g*0.55;
+  const tol = g * 0.55;
   const angTol = degToRad(opts.angleTolDeg);
-  const minLen = Math.max(opts.outPrec*0.8, g*0.5);
+  const minLen = Math.max(opts.outPrec * 0.8, g * 0.5);
 
   const L = lines
-    .map(s => ({a:snapPoint(s.a,g), b:snapPoint(s.b,g)}))
-    .filter(s => dist(s.a,s.b) >= minLen);
+    .map(s => ({ a: snapPoint(s.a, g), b: snapPoint(s.b, g) }))
+    .filter(s => dist(s.a, s.b) >= minLen);
 
-  const key = (p)=>`${Math.round(p.x/g)},${Math.round(p.y/g)}`;
+  const key = (p) => `${Math.round(p.x / g)},${Math.round(p.y / g)}`;
   const map = new Map();
-  for(let i=0;i<L.length;i++){
+  for (let i = 0; i < L.length; i++) {
     const k = key(L[i].a);
-    if(!map.has(k)) map.set(k,[]);
+    if (!map.has(k)) map.set(k, []);
     map.get(k).push(i);
   }
 
   const used = new Array(L.length).fill(false);
   const paths = [];
 
-  for(let i=0;i<L.length;i++){
-    if(used[i]) continue;
-    used[i]=true;
+  for (let i = 0; i < L.length; i++) {
+    if (used[i]) continue;
+    used[i] = true;
 
-    const chain=[L[i]];
-    let cur=L[i];
+    const chain = [L[i]];
+    let cur = L[i];
 
-    while(true){
+    while (true) {
       const end = cur.b;
       const cand = map.get(key(end)) || [];
-      const d0 = angle(cur.a,cur.b);
+      const d0 = angle(cur.a, cur.b);
 
-      let best=-1, bestScore=Infinity;
-      for(const idx of cand){
-        if(used[idx]) continue;
-        const s=L[idx];
-        if(!samePt(end,s.a,tol)) continue;
-        const d1 = angle(s.a,s.b);
-        const da = Math.abs(normAng(d1-d0));
-        if(da<=angTol && da<bestScore){
-          best=idx; bestScore=da;
+      let best = -1, bestScore = Infinity;
+      for (const idx of cand) {
+        if (used[idx]) continue;
+        const s = L[idx];
+        if (!samePt(end, s.a, tol)) continue;
+        const d1 = angle(s.a, s.b);
+        const da = Math.abs(normAng(d1 - d0));
+        if (da <= angTol && da < bestScore) {
+          best = idx; bestScore = da;
         }
       }
-      if(best===-1) break;
-      used[best]=true;
+      if (best === -1) break;
+      used[best] = true;
       chain.push(L[best]);
-      cur=L[best];
+      cur = L[best];
     }
 
     const merged = mergeCollinear(chain, g);
-    if(merged.length) paths.push({segs:merged});
+    if (merged.length) paths.push({ segs: merged });
   }
 
   return paths;
 }
 
-function orderNearest(paths){
+function orderNearest(paths) {
   const rem = paths.slice();
-  if(rem.length<=1) return rem;
+  if (rem.length <= 1) return rem;
   const out = [rem.shift()];
-  let curPt = out[0].segs[out[0].segs.length-1].b;
+  let curPt = out[0].segs[out[0].segs.length - 1].b;
 
-  while(rem.length){
-    let bestI=-1, bestD=Infinity, flip=false;
-    for(let i=0;i<rem.length;i++){
-      const p=rem[i];
-      const a=p.segs[0].a;
-      const b=p.segs[p.segs.length-1].b;
-      const dA=dist(curPt,a);
-      const dB=dist(curPt,b);
-      if(dA<bestD){bestD=dA;bestI=i;flip=false;}
-      if(dB<bestD){bestD=dB;bestI=i;flip=true;}
+  while (rem.length) {
+    let bestI = -1, bestD = Infinity, flip = false;
+    for (let i = 0; i < rem.length; i++) {
+      const p = rem[i];
+      const a = p.segs[0].a;
+      const b = p.segs[p.segs.length - 1].b;
+      const dA = dist(curPt, a);
+      const dB = dist(curPt, b);
+      if (dA < bestD) { bestD = dA; bestI = i; flip = false; }
+      if (dB < bestD) { bestD = dB; bestI = i; flip = true; }
     }
-    let next = rem.splice(bestI,1)[0];
-    if(flip){
-      next = {segs: next.segs.slice().reverse().map(s=>({a:s.b,b:s.a}))};
-    }
+    let next = rem.splice(bestI, 1)[0];
+    if (flip) next = { segs: next.segs.slice().reverse().map(s => ({ a: s.b, b: s.a })) };
     out.push(next);
-    curPt = next.segs[next.segs.length-1].b;
+    curPt = next.segs[next.segs.length - 1].b;
   }
   return out;
 }
 
-function mergeContinuous(paths, chainTol){
-  if(paths.length<=1) return paths;
-  const out=[];
-  let cur=paths[0];
-  for(let i=1;i<paths.length;i++){
-    const nxt=paths[i];
-    const ce=cur.segs[cur.segs.length-1].b;
-    const ns=nxt.segs[0].a;
-    if(samePt(ce,ns,chainTol)){
-      cur={segs:cur.segs.concat(nxt.segs)};
-    }else{
-      out.push(cur);
-      cur=nxt;
-    }
+function mergeContinuous(paths, chainTol) {
+  if (paths.length <= 1) return paths;
+  const out = [];
+  let cur = paths[0];
+  for (let i = 1; i < paths.length; i++) {
+    const nxt = paths[i];
+    const ce = cur.segs[cur.segs.length - 1].b;
+    const ns = nxt.segs[0].a;
+    if (samePt(ce, ns, chainTol)) cur = { segs: cur.segs.concat(nxt.segs) };
+    else { out.push(cur); cur = nxt; }
   }
   out.push(cur);
   return out;
 }
 
-// ---------- machine bounds check ----------
+// ---------------- Machine bounds check ----------------
 function toMachineCoords(p) {
   return { x: p.x + MACHINE_CENTER_SHIFT.x, y: p.y + MACHINE_CENTER_SHIFT.y };
 }
@@ -617,37 +587,31 @@ function checkOvertravelAndMark(toolSegments) {
     minY = Math.min(minY, am.y, bm.y);
     maxY = Math.max(maxY, am.y, bm.y);
 
-    // Mark segment as out-of-bounds if either endpoint is outside.
-    // (Fast + clear for students)
     s.outOfBounds = !(insideMachine(am) && insideMachine(bm));
   }
 
-  const over = {
+  return {
     minX, maxX, minY, maxY,
-    isOver:
-      (minX < 0) || (maxX > MACHINE_X_TRAVEL) ||
-      (minY < 0) || (maxY > MACHINE_Y_TRAVEL)
+    isOver: (minX < 0) || (maxX > MACHINE_X_TRAVEL) || (minY < 0) || (maxY > MACHINE_Y_TRAVEL)
   };
-
-  return over;
 }
 
-// ---------- NC generation ----------
-function buildProgram(paths, opts){
+// ---------------- NC generation ----------------
+function buildProgram(paths, opts) {
   const P = opts.outPrec;
   const safeZ = opts.safeZ;
   const depth = opts.depth;
   const step = opts.stepDown;
-  const passes = Math.max(1, Math.ceil(depth/step));
+  const passes = Math.max(1, Math.ceil(depth / step));
   const zPass = [];
-  for(let i=1;i<=passes;i++) zPass.push(-Math.min(depth,i*step));
+  for (let i = 1; i <= passes; i++) zPass.push(-Math.min(depth, i * step));
 
   const lines = [];
   const segs = [];
 
-  function push(line){ lines.push(line); return lines.length-1; }
-  function outXY(x,y){ return `X${fmt(x,P)} Y${fmt(y,P)}`; }
-  function outZ(z){ return `Z${fmt(z,P)}`; }
+  const push = (line) => { lines.push(line); return lines.length - 1; };
+  const outXY = (x, y) => `X${fmt(x, P)} Y${fmt(y, P)}`;
+  const outZ = (z) => `Z${fmt(z, P)}`;
 
   // Header tuned for generic USB controllers
   push("%");
@@ -663,62 +627,60 @@ function buildProgram(paths, opts){
   push(`M3 S${opts.rpm} (spindle on)`);
   push(`G0 ${outZ(safeZ)}`);
 
-  let curXY = {x:0,y:0};
+  let curXY = { x: 0, y: 0 };
   let curZ = safeZ;
   let lastF = null;
 
-  function retract(){
-    if(curZ !== safeZ){
+  function retract() {
+    if (curZ !== safeZ) {
       push(`G0 ${outZ(safeZ)}`);
       curZ = safeZ;
     }
   }
-  function rapidTo(x,y){
-    const a={...curXY}, b={x,y};
-    const ln = push(`G0 ${outXY(x,y)}`);
-    segs.push({a,b,mode:"RAPID",ncLineIdx:ln});
-    curXY=b;
+  function rapidTo(x, y) {
+    const a = { ...curXY }, b = { x, y };
+    const ln = push(`G0 ${outXY(x, y)}`);
+    segs.push({ a, b, mode: "RAPID", ncLineIdx: ln });
+    curXY = b;
   }
-  function plunge(z){
-    const ln = push(lastF===opts.feedZ ? `G1 ${outZ(z)}` : `G1 ${outZ(z)} F${fmt(opts.feedZ,0.1)}`);
+  function plunge(z) {
+    const ln = push(lastF === opts.feedZ ? `G1 ${outZ(z)}` : `G1 ${outZ(z)} F${fmt(opts.feedZ, 0.1)}`);
     lastF = opts.feedZ;
     curZ = z;
     return ln;
   }
-  function setFeedXY(){
-    if(lastF!==opts.feedXY){
-      push(`F${fmt(opts.feedXY,0.1)}`);
+  function setFeedXY() {
+    if (lastF !== opts.feedXY) {
+      push(`F${fmt(opts.feedXY, 0.1)}`);
       lastF = opts.feedXY;
     }
   }
-  function cutTo(x,y){
-    const a={...curXY}, b={x,y};
-    const ln = push(`G1 ${outXY(x,y)}`);
-    segs.push({a,b,mode:"CUT",ncLineIdx:ln});
-    curXY=b;
+  function cutTo(x, y) {
+    const a = { ...curXY }, b = { x, y };
+    const ln = push(`G1 ${outXY(x, y)}`);
+    segs.push({ a, b, mode: "CUT", ncLineIdx: ln });
+    curXY = b;
   }
 
-  for(const z of zPass){
+  for (const z of zPass) {
     retract();
 
-    for(const p of paths){
-      if(!p.segs.length) continue;
+    for (const p of paths) {
+      if (!p.segs.length) continue;
       const start = p.segs[0].a;
 
       // tool-down chaining: if already at start, stay down
-      if(!samePt(curXY,start,opts.chainTol)){
+      if (!samePt(curXY, start, opts.chainTol)) {
         retract();
-        rapidTo(start.x,start.y);
+        rapidTo(start.x, start.y);
         plunge(z);
         setFeedXY();
-      }else{
-        if(curZ !== z) plunge(z);
+      } else {
+        if (curZ !== z) plunge(z);
         setFeedXY();
       }
 
-      for(const s of p.segs){
-        cutTo(s.b.x,s.b.y);
-      }
+      for (const s of p.segs) cutTo(s.b.x, s.b.y);
     }
 
     retract();
@@ -732,39 +694,39 @@ function buildProgram(paths, opts){
   return { ncLines: lines, ncText: lines.join("\n"), toolSegs: segs };
 }
 
-// ---------- NC pane (reveal + cursor pinned at 0.33) ----------
-function escapeHtml(s){
-  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// ---------------- NC reveal rendering ----------------
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
-function pad4(n){ return String(n).padStart(4,"0"); }
+function pad4(n) { return String(n).padStart(4, "0"); }
 
-function renderNC(){
+function renderNC() {
   const box = $("ncBox");
-  if(!box) return;
+  if (!box) return;
 
-  if(!ncLines.length){
-    box.innerHTML = `<div class="row"><div class="ln">----</div><div class="code">DAT will appear here after Build…</div></div>`;
+  if (!ncLines.length) {
+    box.innerHTML = `<div class="ncLine"><div class="ln">----</div><div class="code">DAT will appear here after Build…</div></div>`;
     return;
   }
 
-  const maxLine = Math.min(shownNCMax, ncLines.length-1);
+  const maxLine = Math.min(shownNCMax, ncLines.length - 1);
   const html = [];
-  for(let i=0;i<=maxLine;i++){
-    const hi = (i===currentNCLine) ? "hi" : "";
+  for (let i = 0; i <= maxLine; i++) {
+    const hi = (i === currentNCLine) ? "hi" : "";
     html.push(
-      `<div class="row ${hi}" data-ln="${i}">
-        <div class="ln">${pad4(i+1)}</div>
+      `<div class="ncLine ${hi}" data-ln="${i}">
+        <div class="ln">${pad4(i + 1)}</div>
         <div class="code">${escapeHtml(ncLines[i])}</div>
       </div>`
     );
   }
   box.innerHTML = html.join("");
 
-  if(currentNCLine>=0){
+  if (currentNCLine >= 0) {
     const el = box.querySelector(`[data-ln="${currentNCLine}"]`);
-    if(el){
+    if (el) {
       const pinY = box.clientHeight * NC_PIN_FRACTION;
-      const elCenterY = el.offsetTop + el.offsetHeight*0.5;
+      const elCenterY = el.offsetTop + el.offsetHeight * 0.5;
       let desired = elCenterY - pinY;
       const maxScroll = Math.max(0, box.scrollHeight - box.clientHeight);
       desired = Math.max(0, Math.min(maxScroll, desired));
@@ -773,133 +735,158 @@ function renderNC(){
   }
 }
 
-// ---------- stepping ----------
-function setPlaying(on){
-  if(on){
-    if(playTimer) return;
-    playTimer = setInterval(()=>{
-      if(revealSegCount >= toolSegs.length){
-        setPlaying(false);
-        return;
-      }
+// ---------------- Step/Play ----------------
+function setPlaying(on) {
+  if (on) {
+    if (playTimer) return;
+    playTimer = setInterval(() => {
+      if (revealSegCount >= toolSegs.length) { setPlaying(false); return; }
       step(+1);
     }, 120);
-  }else{
-    if(playTimer) clearInterval(playTimer);
+  } else {
+    if (playTimer) clearInterval(playTimer);
     playTimer = null;
   }
 }
 
-function syncFromReveal(){
-  if(revealSegCount<=0){
+function syncFromReveal() {
+  if (revealSegCount <= 0) {
     currentNCLine = -1;
     renderNC();
     return;
   }
-  const seg = toolSegs[Math.min(revealSegCount-1, toolSegs.length-1)];
+  const seg = toolSegs[Math.min(revealSegCount - 1, toolSegs.length - 1)];
   currentNCLine = seg?.ncLineIdx ?? -1;
-  if(currentNCLine>=0) shownNCMax = Math.max(shownNCMax, currentNCLine);
+  if (currentNCLine >= 0) shownNCMax = Math.max(shownNCMax, currentNCLine);
   renderNC();
 }
 
-function step(dir){
-  if(!toolSegs.length) return;
-  if(dir>0) revealSegCount = Math.min(toolSegs.length, revealSegCount+1);
-  else revealSegCount = Math.max(0, revealSegCount-1);
+function step(dir) {
+  if (!toolSegs.length) return;
+  if (dir > 0) revealSegCount = Math.min(toolSegs.length, revealSegCount + 1);
+  else revealSegCount = Math.max(0, revealSegCount - 1);
   syncFromReveal();
   draw();
 }
 
-// ---------- overlay toggle UI (added without HTML edits) ----------
-function ensureMachineToggleButton(){
-  const bar = document.querySelector(".ncToolbar");
-  if(!bar) return;
-
-  if ($("machineToggle")) return;
-
-  const btn = document.createElement("button");
-  btn.id = "machineToggle";
-  btn.className = "smallBtn";
-  btn.type = "button";
-  btn.textContent = "Footprint: Off";
-  btn.title = "Toggle machine footprint overlay";
-
-  btn.addEventListener("click", ()=>{
-    showMachineOverlay = !showMachineOverlay;
-    btn.textContent = showMachineOverlay ? "Footprint: On" : "Footprint: Off";
-    draw();
-  });
-
-  // Put it at the end of toolbar
-  bar.appendChild(btn);
+// ---------------- Tabs ----------------
+function setTab(which) {
+  $("tabMain").classList.toggle("active", which === "main");
+  $("tabOptions").classList.toggle("active", which === "options");
+  $("paneMain").classList.toggle("active", which === "main");
+  $("paneOptions").classList.toggle("active", which === "options");
 }
 
-// ---------- events ----------
-$("stepBtn").addEventListener("click", ()=>step(+1));
-$("backBtn").addEventListener("click", ()=>step(-1));
-$("playBtn").addEventListener("click", ()=>setPlaying(true));
-$("pauseBtn").addEventListener("click", ()=>setPlaying(false));
+// ---------------- Scaling actions ----------------
+function applyScaleFromUI(keepViewStable = true) {
+  if (!baseGeomSegs.length) return;
 
-window.addEventListener("keydown",(e)=>{
-  // prevent page movement
-  if(e.code==="Space") e.preventDefault();
+  const pct = Math.max(1, Number($("scalePct").value || 100));
+  currentScale = pct / 100;
+  geomSegs = scaleSegs(baseGeomSegs, currentScale);
+
+  // Do NOT refit view. Keep stable.
+  if (keepViewStable) {
+    if (!viewLocked) lockView();
+  } else if (!userTouchedView) {
+    fitViewOnce(geomSegs);
+  }
+
+  // Clear toolpath because geometry changed
+  toolSegs = [];
+  ncLines = [];
+  ncText = "";
+  revealSegCount = 0;
+  currentNCLine = -1;
+  shownNCMax = -1;
+  enableAfterBuild(false);
+
+  renderNC();
+  draw();
+  setStatus("ok", "Scaled", `Geometry scaled to ${pct}%. Build toolpath again.`);
+}
+
+function fitScaleToMachine() {
+  if (!baseGeomSegs.length) return;
+
+  // compute factor so geometry bounds fit inside machine bounds (center-zero)
+  const b = bounds(baseGeomSegs);
+  const w = (b.maxX - b.minX) || 1;
+  const h = (b.maxY - b.minY) || 1;
+
+  const maxW = MACHINE_X_TRAVEL; // in part coords width matches travel
+  const maxH = MACHINE_Y_TRAVEL;
+
+  const factor = Math.min(maxW / w, maxH / h) * 0.98; // small margin
+  const pct = Math.max(1, Math.round(factor * 100));
+
+  $("scalePct").value = String(pct);
+  applyScaleFromUI(true);
+}
+
+// ---------------- Events ----------------
+$("tabMain").addEventListener("click", () => setTab("main"));
+$("tabOptions").addEventListener("click", () => setTab("options"));
+
+$("showFootprint").addEventListener("change", () => draw());
+$("applyScale").addEventListener("click", () => applyScaleFromUI(true));
+$("fitToMachine").addEventListener("click", () => fitScaleToMachine());
+
+$("stepBtn").addEventListener("click", () => step(+1));
+$("backBtn").addEventListener("click", () => step(-1));
+$("playBtn").addEventListener("click", () => setPlaying(true));
+$("pauseBtn").addEventListener("click", () => setPlaying(false));
+
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Space") e.preventDefault();
 
   const tag = document.activeElement?.tagName?.toLowerCase();
-  if(tag==="input" || tag==="select" || tag==="textarea") return;
+  if (tag === "input" || tag === "select" || tag === "textarea") return;
 
-  if((e.key==="s"||e.key==="S") && !$("stepBtn").disabled){ e.preventDefault(); step(+1); }
-  if((e.key==="b"||e.key==="B") && !$("backBtn").disabled){ e.preventDefault(); step(-1); }
-  if(e.code==="Space" && !$("playBtn").disabled){
+  if ((e.key === "s" || e.key === "S") && !$("stepBtn").disabled) { e.preventDefault(); step(+1); }
+  if ((e.key === "b" || e.key === "B") && !$("backBtn").disabled) { e.preventDefault(); step(-1); }
+  if (e.code === "Space" && !$("playBtn").disabled) {
     e.preventDefault();
     setPlaying(!playTimer);
   }
 });
 
-// Tabs
-function setTab(which){
-  $("tabMain").classList.toggle("active", which==="main");
-  $("tabOptions").classList.toggle("active", which==="options");
-  $("paneMain").classList.toggle("active", which==="main");
-  $("paneOptions").classList.toggle("active", which==="options");
-}
-$("tabMain").addEventListener("click",()=>setTab("main"));
-$("tabOptions").addEventListener("click",()=>setTab("options"));
-
 // Import DXF
-$("file").addEventListener("change", async (e)=>{
+$("file").addEventListener("change", async (e) => {
   const file = e.target.files?.[0];
-  if(!file) return;
+  if (!file) return;
 
   setPlaying(false);
-  setStatus("warn","Loading…", file.name);
+  setStatus("warn", "Loading…", file.name);
 
-  try{
+  try {
     const text = await file.text();
     const parser = new window.DxfParser();
     dxfParsed = parser.parseSync(text);
-  }catch(err){
+  } catch (err) {
     console.error(err);
-    setStatus("bad","DXF parse failed","Try R12/ASCII DXF export.");
+    setStatus("bad", "DXF parse failed", "Try R12/ASCII DXF export.");
     alert("DXF parse failed. Try exporting R12/ASCII DXF.");
     return;
   }
 
   const opts = readOpts();
-
   let segs = extractSegments(dxfParsed, opts.outPrec);
-  if(!segs.length){
-    setStatus("bad","No supported geometry","Need LINE/POLYLINE/ARC/CIRCLE/SPLINE.");
+  if (!segs.length) {
+    setStatus("bad", "No supported geometry", "Need LINE/POLYLINE/ARC/CIRCLE/SPLINE.");
     alert("No supported geometry found.\nNeeds LINE/LWPOLYLINE/POLYLINE/ARC/CIRCLE/SPLINE.\nTry exporting as R12/ASCII DXF.");
     return;
   }
 
-  // apply origin shift
+  // Apply origin shift to base geometry
   segs = applyOriginShift(segs, opts.origin);
+  baseGeomSegs = segs;
 
-  // store geometry
-  geomSegs = segs;
+  // Reset scale to UI percent
+  currentScale = (Math.max(1, Number($("scalePct").value || 100)) / 100);
+  geomSegs = scaleSegs(baseGeomSegs, currentScale);
 
-  // reset build outputs
+  // Reset toolpath/NC
   toolSegs = [];
   ncLines = [];
   ncText = "";
@@ -910,44 +897,45 @@ $("file").addEventListener("change", async (e)=>{
   enableAfterImport(true);
   enableAfterBuild(false);
 
-  // fit view ONCE unless user already panned/zoomed
-  if(!userTouchedView){
-    fitViewOnce(geomSegs);
-  }else{
-    lockView();
-  }
+  // Fit view ONCE (first import), then lock it.
+  if (!userTouchedView) fitViewOnce(geomSegs);
+  else lockView();
 
-  resizeCanvasNoJump();
   renderNC();
   draw();
-
-  setStatus("ok","Loaded","Geometry ready. Click Build Toolpath.");
+  setStatus("ok", "Loaded", `Geometry ready. Scale=${Math.round(currentScale * 100)}%. Click Build Toolpath.`);
 });
 
 // Build toolpath
-$("buildToolpath").addEventListener("click", ()=>{
-  if(!dxfParsed){ alert("Import a DXF first."); return; }
+$("buildToolpath").addEventListener("click", () => {
+  if (!dxfParsed || !baseGeomSegs.length) { alert("Import a DXF first."); return; }
 
-  try{
+  try {
     setPlaying(false);
-    setStatus("warn","Building…","Chaining + tool-down + DAT");
-    if(!viewLocked) lockView(); // freeze the view so build never jumps
+    setStatus("warn", "Building…", "Chaining + tool-down + DAT");
+    if (!viewLocked) lockView(); // freeze the view so build never jumps
 
     const opts = readOpts();
 
-    // rebuild geometry from parsed DXF with current tolerance settings
+    // IMPORTANT: Do NOT re-extract unless you want tolerance changes to affect parsing.
+    // We *will* re-extract only if trace precision changed, then re-apply origin and re-scale.
+    // Safer: rebuild baseGeomSegs from parser using new outPrec (so arcs/circles tessellation updates).
     let segs = extractSegments(dxfParsed, opts.outPrec);
     segs = applyOriginShift(segs, opts.origin);
-    geomSegs = segs; // keep blue display updated, but DO NOT refit view
+    baseGeomSegs = segs;
 
-    // build paths on line-like segments
-    let paths = buildPaths(segs, opts);
+    // apply current scale
+    const pct = Math.max(1, Number($("scalePct").value || 100));
+    currentScale = pct / 100;
+    geomSegs = scaleSegs(baseGeomSegs, currentScale);
+
+    let paths = buildPaths(geomSegs, opts);
     paths = orderNearest(paths);
     paths = mergeContinuous(paths, opts.chainTol);
 
-    if(!paths.length){
-      setStatus("bad","Build produced 0 paths","Try increasing tolerances in Options.");
-      alert("Build produced 0 paths.\nTry Options:\n- outPrec 0.02\n- snapGrid 0.02–0.05\n- chainTol 0.03");
+    if (!paths.length) {
+      setStatus("bad", "Build produced 0 paths", "Try increasing tolerances in Options.");
+      alert("Build produced 0 paths.\nTry Options:\n- Trace precision 0.02\n- Snap grid 0.02–0.05\n- Chain tol 0.03");
       return;
     }
 
@@ -962,7 +950,7 @@ $("buildToolpath").addEventListener("click", ()=>{
     // reveal behavior
     revealSegCount = 0;
     currentNCLine = -1;
-    shownNCMax = Math.min(ncLines.length-1, 60);
+    shownNCMax = Math.min(ncLines.length - 1, 60);
     renderNC();
     draw();
 
@@ -973,47 +961,46 @@ $("buildToolpath").addEventListener("click", ()=>{
         `⚠ Overtravel detected (machine ${MACHINE_X_TRAVEL}" X, ${MACHINE_Y_TRAVEL}" Y)\n` +
         `X: ${over.minX.toFixed(2)} → ${over.maxX.toFixed(2)} (limit 0–${MACHINE_X_TRAVEL})\n` +
         `Y: ${over.minY.toFixed(2)} → ${over.maxY.toFixed(2)} (limit 0–${MACHINE_Y_TRAVEL})\n` +
-        `Tip: with center-zero workflow, keep geometry within ±${(MACHINE_X_TRAVEL/2).toFixed(2)}" X and ±${(MACHINE_Y_TRAVEL/2).toFixed(2)}" Y in NorrisCAM.`;
+        `Tip: center-zero: keep geometry within ±${(MACHINE_X_TRAVEL / 2).toFixed(2)}" in X and ±${(MACHINE_Y_TRAVEL / 2).toFixed(2)}" in Y.`;
 
-      setStatus("warn","Built (Overtravel)", msg.replace(/\n/g," • "));
+      setStatus("warn", "Built (Overtravel)", msg.replace(/\n/g, " • "));
       console.warn(msg);
     } else {
-      setStatus("ok","Built",`Segments: ${toolSegs.length} • Step with S`);
+      setStatus("ok", "Built", `Segments: ${toolSegs.length} • Step with S`);
     }
-  }catch(err){
+  } catch (err) {
     console.error(err);
-    setStatus("bad","Build failed", err?.message || String(err));
+    setStatus("bad", "Build failed", err?.message || String(err));
     alert("Build failed.\nOpen console (F12) for details.");
   }
 });
 
 // Export .dat
-$("exportDat").addEventListener("click", ()=>{
-  if(!ncText) return;
+$("exportDat").addEventListener("click", () => {
+  if (!ncText) return;
 
   let name = prompt("Save USB file as:", "output.dat");
-  if(name === null) return;
+  if (name === null) return;
   name = name.trim();
-  if(!name) name = "output.dat";
-  if(!name.toLowerCase().endsWith(".dat")) name += ".dat";
+  if (!name) name = "output.dat";
+  if (!name.toLowerCase().endsWith(".dat")) name += ".dat";
 
-  const blob = new Blob([ncText], { type:"text/plain" });
+  const blob = new Blob([ncText], { type: "text/plain" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = name;
   a.click();
   URL.revokeObjectURL(a.href);
 
-  setStatus("ok","Exported", name);
+  setStatus("ok", "Exported", name);
 });
 
-// ---------- init ----------
-function init(){
-  ensureMachineToggleButton();
-  setStatus("warn","Idle","Import a DXF to begin.");
+// ---------------- Init ----------------
+function init() {
+  setStatus("warn", "Idle", "Import a DXF to begin.");
   const r = canvas.getBoundingClientRect();
-  view.ox = r.width/2;
-  view.oy = r.height/2;
+  view.ox = r.width / 2;
+  view.oy = r.height / 2;
   lockView();
   resizeCanvasNoJump();
   renderNC();
