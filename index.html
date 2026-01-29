@@ -152,65 +152,144 @@
     .pane{display:none;flex-direction:column;min-height:0;height:100%}
     .pane.active{display:flex}
 
+    /* ---------- RIGHT PANEL READABILITY FIX ---------- */
     .controls{
-      padding:14px;border-bottom:1px solid var(--line);
-      display:flex;flex-direction:column;gap:10px;
+      padding:16px;
+      border-bottom:1px solid var(--line);
+      display:flex;
+      flex-direction:column;
+      gap:12px;
     }
-    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-    .btn{
-      height:40px;padding:0 14px;border-radius:14px;
-      border:1px solid rgba(255,255,255,.12);
-      background:rgba(255,255,255,.06);
-      color:var(--text);font-weight:900;cursor:pointer;
+
+    .row{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:12px;
+      align-items:stretch;
     }
-    .btn:hover{background:rgba(255,255,255,.09)}
-    .btn:disabled{opacity:.45;cursor:not-allowed}
+    .row.actions{ grid-template-columns: 1.4fr 1fr 1fr; }
+    .row.full{ grid-template-columns: 1fr; }
 
     .file{
-      height:40px;padding:9px 12px;border-radius:14px;
-      border:1px solid rgba(255,255,255,.12);
+      height:44px;
+      padding:10px 12px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.06);
+      color:rgba(255,255,255,.85);
+      font-weight:800;
+    }
+
+    .btn{
+      height:44px;
+      padding:0 14px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.07);
+      color:rgba(255,255,255,.92);
+      font-weight:900;
+      cursor:pointer;
+      letter-spacing:.2px;
+    }
+    .btn:hover{ background:rgba(255,255,255,.10); }
+    .btn:disabled{
+      opacity:.40;
+      cursor:not-allowed;
       background:rgba(255,255,255,.04);
-      color:var(--muted);font-weight:800;
     }
 
     .field{
-      display:flex;align-items:center;gap:10px;
-      padding:10px 12px;border-radius:14px;
-      border:1px solid rgba(255,255,255,.10);
-      background:rgba(255,255,255,.04);
-      min-width: 240px;
-      flex:1;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      padding:12px 12px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.045);
+      min-width:0;
     }
-    .field label{font-size:12px;color:var(--muted);min-width:110px}
-    .field input, .field select{
-      flex:1;height:30px;background:rgba(0,0,0,.15);
-      border:1px solid rgba(255,255,255,.10);
-      border-radius:10px;color:var(--text);
-      padding:0 10px;outline:none;font-weight:900;
+
+    .field label{
+      font-size:12px;
+      color:rgba(255,255,255,.72);
+      font-weight:800;
+      letter-spacing:.2px;
     }
-    .field input[type="number"]{text-align:right}
+
+    .field input,
+    .field select{
+      height:40px;
+      width:100%;
+      background:rgba(0,0,0,.22);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:12px;
+      color:rgba(255,255,255,.92);
+      padding:0 12px;
+      outline:none;
+      font-weight:900;
+      font-size:14px;
+    }
+    .field input[type="number"]{ text-align:right; }
+    .field input::placeholder{ color:rgba(255,255,255,.35); font-weight:700; }
 
     .ncToolbar{
-      display:flex;gap:10px;flex-wrap:wrap;
-      align-items:center;justify-content:space-between;
-      padding:10px 14px;border-bottom:1px solid var(--line);
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between;
+      padding:12px 16px;
+      border-bottom:1px solid var(--line);
+      background:rgba(255,255,255,.03);
     }
-    .ncToolbar .leftBtns,.ncToolbar .rightBtns{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-    .hint{font-size:12px;color:var(--muted2)}
+    .ncToolbar .leftBtns,
+    .ncToolbar .rightBtns{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+
+    .hint{
+      font-size:12px;
+      color:rgba(255,255,255,.55);
+      font-weight:700;
+    }
 
     .ncBox{
-      flex:1;min-height:0;overflow:auto;
-      padding:12px 14px;
+      flex:1;
+      min-height:0;
+      overflow:auto;
+      padding:14px 16px;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-      font-size:12px;line-height:1.45;
+      font-size:13px;
+      line-height:1.55;
+      color:rgba(255,255,255,.88);
+      background: linear-gradient(180deg, rgba(0,0,0,.10), rgba(0,0,0,.22));
       scroll-behavior:smooth;
     }
-    .ncLine{display:flex;gap:10px;padding:2px 6px;border-radius:8px}
-    .ncLine .ln{width:52px;color:rgba(255,255,255,.35);text-align:right;user-select:none}
-    .ncLine .code{white-space:pre}
+
+    .ncLine{
+      display:flex;
+      gap:12px;
+      padding:4px 8px;
+      border-radius:10px;
+    }
+    .ncLine .ln{
+      width:60px;
+      color:rgba(255,255,255,.40);
+      text-align:right;
+      user-select:none;
+      font-weight:800;
+    }
+    .ncLine .code{
+      white-space:pre;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
     .ncLine.hi{
-      background:rgba(125,211,252,.12);
-      border:1px solid rgba(125,211,252,.22);
+      background:rgba(125,211,252,.16);
+      border:1px solid rgba(125,211,252,.28);
     }
 
     .footerNote{
@@ -287,7 +366,7 @@
     <section class="right">
       <div id="paneMain" class="pane active">
         <div class="controls">
-          <div class="row">
+          <div class="row actions">
             <input id="file" class="file" type="file" accept=".dxf" />
             <button id="buildToolpath" class="btn" type="button" disabled>Build Toolpath</button>
             <button id="exportDat" class="btn" type="button" disabled>Export .DAT</button>
@@ -299,29 +378,29 @@
               <input id="spindleRPM" type="number" value="12000" min="0" step="100" />
             </div>
             <div class="field">
-              <label>Safe Z</label>
+              <label>Safe Z (in)</label>
               <input id="safeZ" type="number" value="0.5" step="0.01" />
             </div>
           </div>
 
           <div class="row">
             <div class="field">
-              <label>Cut Z (depth)</label>
+              <label>Cut Z (depth, in)</label>
               <input id="cutZ" type="number" value="0.0625" step="0.001" />
             </div>
             <div class="field">
-              <label>Stepdown</label>
+              <label>Stepdown (in)</label>
               <input id="stepDown" type="number" value="0.0625" step="0.001" />
             </div>
           </div>
 
           <div class="row">
             <div class="field">
-              <label>Feed XY</label>
+              <label>Feed XY (ipm)</label>
               <input id="feedXY" type="number" value="30" step="1" />
             </div>
             <div class="field">
-              <label>Feed Z</label>
+              <label>Feed Z (ipm)</label>
               <input id="feedZ" type="number" value="20" step="1" />
             </div>
           </div>
