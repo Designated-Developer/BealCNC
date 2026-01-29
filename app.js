@@ -1,9 +1,12 @@
 // NorrisCAM — DXF → Toolpath → Step/Play reveal + USB .DAT (G-code)
-// Fixes included:
-// - Canvas stability on Build (preserve world-at-center through resize/layout changes)
-// - NC scroll stays inside ncBox (no page jump)
-// - Play/Pause restored (auto-step reveal)
-// - Space toggles Play/Pause
+//
+// Code preview rules (your choices):
+// - Reveal ONLY up to current line (future hidden)
+// - Reveal begins at line 1 (no special header handling)
+// - Highlighted line scrolls to TOP (smooth)
+// - Show line numbers
+// - Step = every tool move (rapids + cuts)
+// - Play follows + scrolls
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("c");
@@ -14,12 +17,17 @@ let dxfParsed = null;
 
 let previewSegs = [];   // cyan model preview segments
 let playback = [];      // toolpath segments [{a,b,mode,ncLineIdx}]
-let moves = [];         // motion moves
+let moves = [];
 let ncLines = [];
 let lastNC = "";
 
-let revealCount = 0;    // segments revealed so far
+// stepping is segment-based, but code preview is line-based
+let revealCount = 0;    // segments revealed
+let currentLineIdx = -1; // currently highlighted NC line index
 let playTimer = null;
+
+// map for jumping to line
+let lineToLastSegIndex = new Map(); // ncLineIdx -> last segment index that points to it
 
 // view state
 const view = { scale: 60, ox: 0, oy: 0, dragging: false, lx: 0, ly: 0 };
@@ -42,6 +50,8 @@ function readOpts(){
   const stepDown = Math.max(0.001, Number($("stepDown").value || 0.0625));
   const outPrec = Math.max(0.0005, Number($("outPrec").value || 0.01));
 
+  const rpm = Math.max(0, Math.floor(Number($("spindleRPM").value || 12000)));
+
   return {
     origin: $("origin").value,
     safeZ,
@@ -53,7 +63,8 @@ function readOpts(){
     snapGrid: Math.max(0.001, Number($("snapGrid").value || 0.02)),
     angleTolDeg: Math.max(1, Number($("angleTolDeg").value || 12)),
     chainTol: Math.max(0.0005, Number($("chainTol").value || 0.02)),
-    toolComment: $("toolComment").value || "(T1 - 1/4 endmill, centerline, no comp)"
+    toolComment: $("toolComment").value || "(T1 - 1/4 endmill, centerline, no comp)",
+    spindleRPM: rpm
   };
 }
 
@@ -170,7 +181,7 @@ function boundsOfSegments(segs){
     minX=Math.min(minX,s.a.x,s.b.x);
     minY=Math.min(minY,s.a.y,s.b.y);
     maxX=Math.max(maxX,s.a.x,s.b.x);
-    maxY=Math.max(maxY,s.a.y,s.b.y);
+    maxY=Math.max(maxY,s.maxY ?? s.a.y, s.b.y);
   }
   if(!isFinite(minX)) return { minX:0,minY:0,maxX:1,maxY:1 };
   return { minX,minY,maxX,maxY };
@@ -414,6 +425,10 @@ function buildNC(moves, opts){
   push("G40 (cancel cutter comp)");
   push("G49 (cancel tool length offset)");
   push("G54 (work offset)");
+
+  // ✅ requested: M03 line with spindle speed input
+  push(`M3 S${Math.floor(opts.spindleRPM)} (spindle on)`);
+
   push(`G0 ${outZ(opts.safeZ)}`);
 
   let lastF=null;
@@ -463,6 +478,7 @@ function buildNC(moves, opts){
   }
 
   push(`G0 ${outZ(opts.safeZ)}`);
+  push("M5 (spindle stop)");
   push("M30 (end)");
   push("%");
 
@@ -493,40 +509,61 @@ function buildPlayback(moves, moveToLine){
       continue;
     }
   }
+
+  // Build ncLineIdx -> last seg index
+  lineToLastSegIndex = new Map();
+  for(let si=0; si<segs.length; si++){
+    const ln = segs[si].ncLineIdx;
+    if(typeof ln === "number") lineToLastSegIndex.set(ln, si);
+  }
+
   return segs;
 }
 
-// ---------- NC render (NO page scroll) ----------
+// ---------- NC render (Reveal + line numbers + smooth scroll-to-top) ----------
 function escapeHtml(s){
   return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+function pad4(n){ return String(n).padStart(4,"0"); }
 
-function renderNC(highlightIndex=-1){
+function renderNCReveal(highlightIndex=-1){
   const box=$("ncBox");
 
   if(!ncLines.length){
-    box.innerHTML = `<div class="line dim">DAT will appear here after Build…</div>`;
+    box.innerHTML = `<div class="row"><div class="ln">----</div><div class="code">DAT will appear here after Build…</div></div>`;
     $("ncLineHud").textContent="Line: —";
     return;
   }
 
-  const html=[];
-  for(let i=0;i<ncLines.length;i++){
-    const cls=(i===highlightIndex) ? "line hi" : "line dim";
-    html.push(`<div class="${cls}" data-ln="${i}">${escapeHtml(ncLines[i])}</div>`);
-  }
-  box.innerHTML=html.join("");
+  // Reveal ONLY from line 1 up to highlightIndex (or nothing if -1)
+  const maxLine = (highlightIndex>=0) ? highlightIndex : -1;
 
-  if(highlightIndex>=0){
-    $("ncLineHud").textContent=`Line: ${highlightIndex+1}`;
-    const el=box.querySelector(`[data-ln="${highlightIndex}"]`);
-    if(el){
-      // Scroll ONLY inside ncBox
-      const target = el.offsetTop - (box.clientHeight/2) + (el.clientHeight/2);
-      box.scrollTop = Math.max(0, target);
-    }
-  } else {
+  const html=[];
+  for(let i=0;i<=maxLine;i++){
+    const isHi = (i===highlightIndex);
+    html.push(
+      `<div class="row ${isHi ? "hi" : ""}" data-ln="${i}">
+         <div class="ln">${pad4(i+1)}</div>
+         <div class="code">${escapeHtml(ncLines[i])}</div>
+       </div>`
+    );
+  }
+
+  // If nothing revealed yet, show a tiny hint line (no header auto-show)
+  if(maxLine < 0){
+    box.innerHTML = `<div class="row"><div class="ln">----</div><div class="code">Press Step (S) to reveal code…</div></div>`;
     $("ncLineHud").textContent="Line: —";
+    return;
+  }
+
+  box.innerHTML = html.join("");
+  $("ncLineHud").textContent = `Line: ${highlightIndex+1}`;
+
+  // Smooth scroll so highlighted row sits at TOP of ncBox
+  const el = box.querySelector(`[data-ln="${highlightIndex}"]`);
+  if(el){
+    const targetTop = el.offsetTop; // top align
+    box.scrollTo({ top: Math.max(0, targetTop - 2), behavior: "smooth" });
   }
 }
 
@@ -666,7 +703,6 @@ function resizePreserveCenter(){
 
   draw();
 }
-
 window.addEventListener("resize", resizePreserveCenter);
 
 // ---------- Pan/Zoom ----------
@@ -731,20 +767,25 @@ function setPlaying(on){
   draw();
 }
 
+function updateCurrentLineFromReveal(){
+  if(revealCount<=0){
+    currentLineIdx = -1;
+    renderNCReveal(-1);
+    return;
+  }
+  const seg = playback[Math.min(revealCount-1, playback.length-1)];
+  const ln = seg?.ncLineIdx;
+  currentLineIdx = (typeof ln==="number") ? ln : -1;
+  renderNCReveal(currentLineIdx);
+}
+
 function step(dir){
   if(!playback.length) return;
 
   if(dir>0) revealCount=Math.min(playback.length, revealCount+1);
   else revealCount=Math.max(0, revealCount-1);
 
-  if(revealCount<=0) renderNC(-1);
-  else {
-    const seg = playback[revealCount-1];
-    const ln = seg.ncLineIdx;
-    if(typeof ln==="number") renderNC(ln);
-    else renderNC(-1);
-  }
-
+  updateCurrentLineFromReveal();
   draw();
 }
 
@@ -755,7 +796,7 @@ $("pause").addEventListener("click",()=>setPlaying(false));
 
 window.addEventListener("keydown",(e)=>{
   const tag = document.activeElement?.tagName?.toLowerCase();
-  if(tag==="input" || tag==="select") return;
+  if(tag==="input" || tag==="select" || tag==="textarea") return;
 
   if((e.key==="s"||e.key==="S") && !$("step").disabled){
     e.preventDefault();
@@ -771,6 +812,52 @@ window.addEventListener("keydown",(e)=>{
   }
 });
 
+// ---------- Go To Line ----------
+function gotoLine(n){
+  if(!ncLines.length) return;
+  const idx = Math.max(0, Math.min(ncLines.length-1, n-1));
+
+  // Find the last segment whose ncLineIdx <= idx
+  // Prefer exact match; else nearest earlier.
+  let segIndex = null;
+
+  if(lineToLastSegIndex.has(idx)){
+    segIndex = lineToLastSegIndex.get(idx);
+  } else {
+    // scan backward for nearest earlier line that exists
+    for(let i=idx; i>=0; i--){
+      if(lineToLastSegIndex.has(i)){
+        segIndex = lineToLastSegIndex.get(i);
+        break;
+      }
+    }
+  }
+
+  if(segIndex === null){
+    // No move lines yet (only header), but reveal up to idx anyway
+    revealCount = 0;
+    currentLineIdx = idx;
+    renderNCReveal(currentLineIdx);
+    draw();
+    return;
+  }
+
+  revealCount = Math.min(playback.length, segIndex + 1);
+  updateCurrentLineFromReveal();
+  draw();
+}
+
+$("gotoBtn").addEventListener("click", ()=>{
+  const n = Number($("gotoLine").value || 1);
+  gotoLine(n);
+});
+$("gotoLine").addEventListener("keydown",(e)=>{
+  if(e.key==="Enter"){
+    e.preventDefault();
+    $("gotoBtn").click();
+  }
+});
+
 // ---------- Buttons ----------
 $("fit").addEventListener("click",()=>{
   if(previewSegs.length) fitViewToSegments(previewSegs);
@@ -780,7 +867,8 @@ $("fit").addEventListener("click",()=>{
 $("resetSim").addEventListener("click",()=>{
   setPlaying(false);
   revealCount=0;
-  renderNC(-1);
+  currentLineIdx=-1;
+  renderNCReveal(-1);
   draw();
 });
 
@@ -837,7 +925,8 @@ $("file").addEventListener("change", async (e)=>{
   previewSegs=segs.map(s=>({a:s.a,b:s.b}));
 
   // clear previous build
-  playback=[]; moves=[]; ncLines=[]; lastNC=""; revealCount=0;
+  playback=[]; moves=[]; ncLines=[]; lastNC=""; revealCount=0; currentLineIdx=-1;
+  lineToLastSegIndex = new Map();
 
   $("buildToolpath").disabled=false;
   $("download").disabled=true;
@@ -848,12 +937,9 @@ $("file").addEventListener("change", async (e)=>{
   $("play").disabled=true;
   $("pause").disabled=true;
 
-  renderNC(-1);
+  renderNCReveal(-1);
 
-  // only auto-fit on first import if user hasn't touched view
   if(!viewTouched) fitViewToSegments(previewSegs);
-
-  // ensure canvas sizing is correct without drifting
   resizePreserveCenter();
 
   setStatus("good","Loaded","Geometry ready. Click Build.");
@@ -890,8 +976,9 @@ $("buildToolpath").addEventListener("click", ()=>{
     ncLines=ncArr;
     playback=buildPlayback(moves, moveToLine);
 
-    // reveal reset
+    // reset reveal
     revealCount=0;
+    currentLineIdx=-1;
 
     // enable controls
     $("download").disabled=false;
@@ -901,9 +988,12 @@ $("buildToolpath").addEventListener("click", ()=>{
     $("play").disabled=false;
     $("pause").disabled=false;
 
-    renderNC(-1);
+    $("gotoLine").max = String(ncLines.length);
+    $("gotoLine").value = "1";
 
-    // KEY FIX: layout changed (NC content) can resize canvas; preserve center
+    renderNCReveal(-1);
+
+    // Keep canvas stable after NC pane changes
     resizePreserveCenter();
 
     setStatus("good","Built",`Paths: ${paths.length} | Moves: ${playback.length} | Press S or Play.`);
@@ -915,7 +1005,7 @@ $("buildToolpath").addEventListener("click", ()=>{
   }
 });
 
-// ---------- Origin change: update preview only (no view auto-fit) ----------
+// ---------- Origin change: update preview only ----------
 $("origin").addEventListener("change", ()=>{
   if(!dxfParsed) return;
 
@@ -929,7 +1019,8 @@ $("origin").addEventListener("change", ()=>{
   previewSegs=segs.map(s=>({a:s.a,b:s.b}));
 
   // must rebuild toolpath
-  playback=[]; moves=[]; ncLines=[]; lastNC=""; revealCount=0;
+  playback=[]; moves=[]; ncLines=[]; lastNC=""; revealCount=0; currentLineIdx=-1;
+  lineToLastSegIndex = new Map();
 
   $("download").disabled=true;
   $("resetSim").disabled=true;
@@ -938,9 +1029,7 @@ $("origin").addEventListener("change", ()=>{
   $("play").disabled=true;
   $("pause").disabled=true;
 
-  renderNC(-1);
-
-  // preserve stability if any size/layout shifts
+  renderNCReveal(-1);
   resizePreserveCenter();
 
   setStatus("warn","Origin changed","Preview updated — rebuild toolpath.");
@@ -953,7 +1042,7 @@ function init(){
   view.ox=r.width/2;
   view.oy=r.height/2;
 
-  renderNC(-1);
+  renderNCReveal(-1);
   setStatus("warn","Idle","Import a DXF to begin.");
   resizePreserveCenter();
 }
