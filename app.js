@@ -1,14 +1,23 @@
-// NorrisCAM — FULL UPDATED ENGINE
-// - DXF parse: LINE/LWPOLYLINE/POLYLINE/ARC/CIRCLE/SPLINE
-// - Stable view: fit ON import once; never re-fit on build/step
-// - Toolpath: nearest ordering + chaining (keeps tool down if continuous)
-// - Preview: DXF blue; rapids dashed; cuts red (revealed by step/play only)
-// - Code panel right: reveal from line 1; cursor pinned at 0.33
-// - Hotkeys: S step, B back, Space play/pause
-// - Export: prompts name, writes .dat
-// - Spindle RPM -> M3 S#### in header
+// NorrisCAM — UPDATED JS (Machine Footprint + Home + Overtravel Warning)
+// - Adds a toggleable machine footprint overlay (dashed faint gray)
+// - Home corner: BACK RIGHT
+// - Travel: X = 15" (back -> front), Y = 20" (right -> left)
+// - Work zero assumed at CENTER of machine footprint (since you set 0,0 at center of stock)
+// - Warn-only if toolpath exceeds footprint (does NOT block export)
+// - Keeps the model view stable (no re-fit on Build/Step/Play)
 
 const NC_PIN_FRACTION = 0.33;
+
+// Machine footprint (inches)
+const MACHINE_X_TRAVEL = 15; // X: back <-> front
+const MACHINE_Y_TRAVEL = 20; // Y: right <-> left
+
+// With "center of stock" workflow, we assume WCS (0,0) is centered in the machine footprint.
+// That means machine coordinates are simply part coords shifted by half-travel.
+const MACHINE_CENTER_SHIFT = {
+  x: MACHINE_X_TRAVEL / 2,
+  y: MACHINE_Y_TRAVEL / 2
+};
 
 const $ = (id) => document.getElementById(id);
 
@@ -19,7 +28,7 @@ let dxfParsed = null;
 
 // geometry (for display) and toolpath (for stepping)
 let geomSegs = [];     // DXF tessellated line segments (blue)
-let toolSegs = [];     // toolpath segments [{a,b,mode,ncLineIdx}] for reveal preview
+let toolSegs = [];     // toolpath segments [{a,b,mode,ncLineIdx,outOfBounds?}] for reveal preview
 let ncLines = [];      // string[]
 let ncText = "";       // full program text
 
@@ -34,6 +43,9 @@ const view = { scale: 50, ox: 0, oy: 0 };
 let viewLocked = false;
 let lockedView = { scale: view.scale, ox: view.ox, oy: view.oy };
 let userTouchedView = false;
+
+// Machine overlay state
+let showMachineOverlay = false;
 
 // ---------- UI helpers ----------
 function setStatus(kind, title, detail) {
@@ -132,11 +144,9 @@ function xyOf(v) {
 }
 
 function tessArc(center, r, a0, a1, outPrec) {
-  // ensure forward sweep
   let start = a0, end = a1;
   if (end < start) end += Math.PI * 2;
 
-  // segment angle from chord error approximation
   let dTheta = Math.PI / 18;
   if (r > 1e-9) {
     const x = Math.max(-1, Math.min(1, 1 - (outPrec / r)));
@@ -181,7 +191,6 @@ function extractSegments(dxf, outPrec) {
       const r = Number(e.radius);
       if (c && isFinite(r) && r > 0) {
         let a0 = Number(e.startAngle), a1 = Number(e.endAngle);
-        // some exporters store degrees
         if (Math.abs(a0) > 2 * Math.PI || Math.abs(a1) > 2 * Math.PI) {
           a0 = a0 * Math.PI / 180;
           a1 = a1 * Math.PI / 180;
@@ -201,7 +210,6 @@ function extractSegments(dxf, outPrec) {
     }
 
     if (e.type === "SPLINE") {
-      // dxf-parser exposes fitPoints/controlPoints arrays (varies by file)
       const ptsRaw = (e.fitPoints?.length ? e.fitPoints : e.controlPoints) || [];
       const pts = ptsRaw.map(xyOf).filter(Boolean);
       if (pts.length >= 2) {
@@ -293,6 +301,101 @@ canvas.addEventListener("wheel", (e) => {
   draw();
 }, { passive: false });
 
+// ---------- machine overlay (footprint + home) ----------
+function machineRectInPartCoords() {
+  // Machine 0..X, 0..Y in machine coords. WCS (part 0,0) assumed at machine center.
+  // Therefore, machine bounds in part coords are:
+  // X: [-X/2 .. +X/2], Y: [-Y/2 .. +Y/2]
+  return {
+    minX: -MACHINE_CENTER_SHIFT.x,
+    maxX: +MACHINE_CENTER_SHIFT.x,
+    minY: -MACHINE_CENTER_SHIFT.y,
+    maxY: +MACHINE_CENTER_SHIFT.y
+  };
+}
+
+function drawMachineOverlay() {
+  if (!showMachineOverlay) return;
+
+  const R = machineRectInPartCoords();
+
+  const p1 = w2s({ x: R.minX, y: R.minY });
+  const p2 = w2s({ x: R.maxX, y: R.minY });
+  const p3 = w2s({ x: R.maxX, y: R.maxY });
+  const p4 = w2s({ x: R.minX, y: R.maxY });
+
+  ctx.save();
+
+  // dashed faint gray
+  ctx.strokeStyle = "rgba(255,255,255,0.18)";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([7, 7]);
+
+  ctx.beginPath();
+  ctx.moveTo(p1.x, p1.y);
+  ctx.lineTo(p2.x, p2.y);
+  ctx.lineTo(p3.x, p3.y);
+  ctx.lineTo(p4.x, p4.y);
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.setLineDash([]);
+
+  // Home marker: BACK RIGHT corner = machine (0,0)
+  // machine (0,0) corresponds to part (-X/2, -Y/2)
+  const homeW = { x: -MACHINE_CENTER_SHIFT.x, y: -MACHINE_CENTER_SHIFT.y };
+  const homeS = w2s(homeW);
+
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.beginPath();
+  ctx.arc(homeS.x, homeS.y, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // "HOME" label
+  ctx.font = "bold 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  ctx.fillStyle = "rgba(255,255,255,0.75)";
+  ctx.fillText("HOME (Back Right)", homeS.x + 10, homeS.y - 8);
+
+  // Axis hint (screen-space): +X is back->front (toward front) => draw arrow DOWN
+  // +Y is right->left => draw arrow LEFT
+  const ax = { x: homeS.x + 90, y: homeS.y + 45 };
+  // +X arrow (down)
+  ctx.strokeStyle = "rgba(255,255,255,0.35)";
+  ctx.lineWidth = 2;
+
+  ctx.beginPath();
+  ctx.moveTo(ax.x, ax.y);
+  ctx.lineTo(ax.x, ax.y + 40);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.beginPath();
+  ctx.moveTo(ax.x, ax.y + 40);
+  ctx.lineTo(ax.x - 5, ax.y + 30);
+  ctx.lineTo(ax.x + 5, ax.y + 30);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.fillText("+X (front)", ax.x + 8, ax.y + 38);
+
+  // +Y arrow (left)
+  ctx.strokeStyle = "rgba(255,255,255,0.35)";
+  ctx.beginPath();
+  ctx.moveTo(ax.x, ax.y);
+  ctx.lineTo(ax.x - 40, ax.y);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.beginPath();
+  ctx.moveTo(ax.x - 40, ax.y);
+  ctx.lineTo(ax.x - 30, ax.y - 5);
+  ctx.lineTo(ax.x - 30, ax.y + 5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.fillText("+Y (left)", ax.x - 74, ax.y - 6);
+
+  ctx.restore();
+}
+
 // ---------- drawing ----------
 function drawGrid() {
   const r = canvas.getBoundingClientRect();
@@ -325,7 +428,7 @@ function drawToolReveal() {
   if (!toolSegs.length) return;
   const n = Math.min(revealSegCount, toolSegs.length);
 
-  // dashed rapids
+  // dashed rapids (only after step lands)
   ctx.save();
   ctx.strokeStyle = "rgba(122,167,255,0.35)";
   ctx.lineWidth = 2;
@@ -338,14 +441,14 @@ function drawToolReveal() {
   }
   ctx.restore();
 
-  // cuts red
+  // cuts (red) + out-of-bounds highlight (orange)
   ctx.save();
-  ctx.strokeStyle = "rgba(255,120,120,0.95)";
   ctx.lineWidth = 2;
   ctx.setLineDash([]);
   for (let i = 0; i < n; i++) {
     const s = toolSegs[i];
     if (s.mode !== "CUT") continue;
+    ctx.strokeStyle = s.outOfBounds ? "rgba(251,191,36,0.95)" : "rgba(255,120,120,0.95)";
     const a = w2s(s.a), b = w2s(s.b);
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
   }
@@ -356,11 +459,12 @@ function draw() {
   const r = canvas.getBoundingClientRect();
   ctx.clearRect(0,0,r.width,r.height);
   drawGrid();
+  drawMachineOverlay(); // behind geometry + tool
   drawGeom();
   drawToolReveal();
 }
 
-// ---------- toolpath planning (simple, reliable, student-grade) ----------
+// ---------- toolpath planning ----------
 function angle(a,b){ return Math.atan2(b.y-a.y,b.x-a.x); }
 function normAng(x){ while(x<-Math.PI)x+=2*Math.PI; while(x>Math.PI)x-=2*Math.PI; return x; }
 function degToRad(d){ return d*Math.PI/180; }
@@ -491,7 +595,44 @@ function mergeContinuous(paths, chainTol){
   return out;
 }
 
-// build moves + tool segments + NC
+// ---------- machine bounds check ----------
+function toMachineCoords(p) {
+  return { x: p.x + MACHINE_CENTER_SHIFT.x, y: p.y + MACHINE_CENTER_SHIFT.y };
+}
+function insideMachine(pMachine) {
+  return (
+    pMachine.x >= 0 && pMachine.x <= MACHINE_X_TRAVEL &&
+    pMachine.y >= 0 && pMachine.y <= MACHINE_Y_TRAVEL
+  );
+}
+function checkOvertravelAndMark(toolSegments) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
+  for (const s of toolSegments) {
+    const am = toMachineCoords(s.a);
+    const bm = toMachineCoords(s.b);
+
+    minX = Math.min(minX, am.x, bm.x);
+    maxX = Math.max(maxX, am.x, bm.x);
+    minY = Math.min(minY, am.y, bm.y);
+    maxY = Math.max(maxY, am.y, bm.y);
+
+    // Mark segment as out-of-bounds if either endpoint is outside.
+    // (Fast + clear for students)
+    s.outOfBounds = !(insideMachine(am) && insideMachine(bm));
+  }
+
+  const over = {
+    minX, maxX, minY, maxY,
+    isOver:
+      (minX < 0) || (maxX > MACHINE_X_TRAVEL) ||
+      (minY < 0) || (maxY > MACHINE_Y_TRAVEL)
+  };
+
+  return over;
+}
+
+// ---------- NC generation ----------
 function buildProgram(paths, opts){
   const P = opts.outPrec;
   const safeZ = opts.safeZ;
@@ -502,14 +643,13 @@ function buildProgram(paths, opts){
   for(let i=1;i<=passes;i++) zPass.push(-Math.min(depth,i*step));
 
   const lines = [];
-  const moveLineIndex = new Map(); // maps “segment index” -> nc line index
   const segs = [];
 
   function push(line){ lines.push(line); return lines.length-1; }
   function outXY(x,y){ return `X${fmt(x,P)} Y${fmt(y,P)}`; }
   function outZ(z){ return `Z${fmt(z,P)}`; }
 
-  // Header tuned for “generic/USB” controllers (safe defaults)
+  // Header tuned for generic USB controllers
   push("%");
   push("(NorrisCAM - USB G-code)");
   push(opts.toolComment);
@@ -565,15 +705,13 @@ function buildProgram(paths, opts){
       if(!p.segs.length) continue;
       const start = p.segs[0].a;
 
-      // tool-down chaining:
-      // If we are already at start XY (within chainTol), do NOT retract/rapid.
+      // tool-down chaining: if already at start, stay down
       if(!samePt(curXY,start,opts.chainTol)){
         retract();
         rapidTo(start.x,start.y);
         plunge(z);
         setFeedXY();
       }else{
-        // already at start; just ensure depth + feed
         if(curZ !== z) plunge(z);
         setFeedXY();
       }
@@ -672,6 +810,30 @@ function step(dir){
   draw();
 }
 
+// ---------- overlay toggle UI (added without HTML edits) ----------
+function ensureMachineToggleButton(){
+  const bar = document.querySelector(".ncToolbar");
+  if(!bar) return;
+
+  if ($("machineToggle")) return;
+
+  const btn = document.createElement("button");
+  btn.id = "machineToggle";
+  btn.className = "smallBtn";
+  btn.type = "button";
+  btn.textContent = "Footprint: Off";
+  btn.title = "Toggle machine footprint overlay";
+
+  btn.addEventListener("click", ()=>{
+    showMachineOverlay = !showMachineOverlay;
+    btn.textContent = showMachineOverlay ? "Footprint: On" : "Footprint: Off";
+    draw();
+  });
+
+  // Put it at the end of toolbar
+  bar.appendChild(btn);
+}
+
 // ---------- events ----------
 $("stepBtn").addEventListener("click", ()=>step(+1));
 $("backBtn").addEventListener("click", ()=>step(-1));
@@ -679,7 +841,7 @@ $("playBtn").addEventListener("click", ()=>setPlaying(true));
 $("pauseBtn").addEventListener("click", ()=>setPlaying(false));
 
 window.addEventListener("keydown",(e)=>{
-  // never allow the page to move
+  // prevent page movement
   if(e.code==="Space") e.preventDefault();
 
   const tag = document.activeElement?.tagName?.toLowerCase();
@@ -778,7 +940,7 @@ $("buildToolpath").addEventListener("click", ()=>{
     segs = applyOriginShift(segs, opts.origin);
     geomSegs = segs; // keep blue display updated, but DO NOT refit view
 
-    // build paths on LINE-like segments (we already tessellated arcs/splines into lines)
+    // build paths on line-like segments
     let paths = buildPaths(segs, opts);
     paths = orderNearest(paths);
     paths = mergeContinuous(paths, opts.chainTol);
@@ -794,16 +956,30 @@ $("buildToolpath").addEventListener("click", ()=>{
     ncText = prog.ncText;
     toolSegs = prog.toolSegs;
 
-    // reveal behavior: show code starting at line 1, then it grows
+    // Overtravel marking + warning
+    const over = checkOvertravelAndMark(toolSegs);
+
+    // reveal behavior
     revealSegCount = 0;
     currentNCLine = -1;
-    shownNCMax = Math.min(ncLines.length-1, 60); // initial visible block, then reveal grows as you step/play
+    shownNCMax = Math.min(ncLines.length-1, 60);
     renderNC();
     draw();
 
     enableAfterBuild(true);
 
-    setStatus("ok","Built",`Paths: ${paths.length} • Segments: ${toolSegs.length} • Step with S`);
+    if (over.isOver) {
+      const msg =
+        `⚠ Overtravel detected (machine ${MACHINE_X_TRAVEL}" X, ${MACHINE_Y_TRAVEL}" Y)\n` +
+        `X: ${over.minX.toFixed(2)} → ${over.maxX.toFixed(2)} (limit 0–${MACHINE_X_TRAVEL})\n` +
+        `Y: ${over.minY.toFixed(2)} → ${over.maxY.toFixed(2)} (limit 0–${MACHINE_Y_TRAVEL})\n` +
+        `Tip: with center-zero workflow, keep geometry within ±${(MACHINE_X_TRAVEL/2).toFixed(2)}" X and ±${(MACHINE_Y_TRAVEL/2).toFixed(2)}" Y in NorrisCAM.`;
+
+      setStatus("warn","Built (Overtravel)", msg.replace(/\n/g," • "));
+      console.warn(msg);
+    } else {
+      setStatus("ok","Built",`Segments: ${toolSegs.length} • Step with S`);
+    }
   }catch(err){
     console.error(err);
     setStatus("bad","Build failed", err?.message || String(err));
@@ -833,8 +1009,8 @@ $("exportDat").addEventListener("click", ()=>{
 
 // ---------- init ----------
 function init(){
+  ensureMachineToggleButton();
   setStatus("warn","Idle","Import a DXF to begin.");
-  // start view centered
   const r = canvas.getBoundingClientRect();
   view.ox = r.width/2;
   view.oy = r.height/2;
