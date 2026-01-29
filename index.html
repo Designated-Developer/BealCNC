@@ -29,11 +29,7 @@
       overflow:hidden;
     }
 
-    .app{
-      height:100vh;
-      display:flex;
-      flex-direction:column;
-    }
+    .app{height:100vh;display:flex;flex-direction:column}
 
     header{
       height:64px;
@@ -46,12 +42,7 @@
       backdrop-filter: blur(10px);
     }
 
-    .brand{
-      display:flex;
-      align-items:center;
-      gap:12px;
-      min-width:260px;
-    }
+    .brand{display:flex;align-items:center;gap:12px;min-width:260px}
     .logoWrap{
       width:44px;height:44px;border-radius:12px;
       background: linear-gradient(145deg, rgba(125,211,252,.25), rgba(52,211,153,.18));
@@ -60,7 +51,7 @@
       box-shadow: 0 10px 28px rgba(0,0,0,.25);
     }
     .brandText{display:flex;flex-direction:column;line-height:1.05}
-    .brandText .name{font-weight:800;font-size:16px;letter-spacing:.4px}
+    .brandText .name{font-weight:900;font-size:16px;letter-spacing:.4px}
     .brandText .tag{font-size:12px;color:var(--muted2)}
 
     .status{
@@ -68,7 +59,7 @@
       padding:8px 12px;border-radius:14px;
       border:1px solid rgba(255,255,255,.12);
       background:rgba(255,255,255,.04);
-      min-width:380px;
+      min-width:420px;
       justify-content:space-between;
     }
     .statusLeft{display:flex;align-items:center;gap:10px}
@@ -77,23 +68,17 @@
     .dot.warn{background:var(--warn)}
     .dot.bad{background:var(--bad)}
     .statusMain{display:flex;flex-direction:column}
-    .statusMain .title{font-weight:700;font-size:13px}
-    .statusMain .sub{font-size:12px;color:var(--muted2);max-width:520px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .statusMain .title{font-weight:800;font-size:13px}
+    .statusMain .sub{font-size:12px;color:var(--muted2);max-width:760px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-    .tabs{
-      display:flex;
-      gap:10px;
-      align-items:center;
-    }
+    .tabs{display:flex;gap:10px;align-items:center}
     .tabBtn{
-      height:36px;
-      padding:0 12px;
-      border-radius:12px;
+      height:36px;padding:0 12px;border-radius:12px;
       border:1px solid rgba(255,255,255,.12);
       background:rgba(255,255,255,.04);
       color:var(--text);
       cursor:pointer;
-      font-weight:700;
+      font-weight:900;
       font-size:13px;
     }
     .tabBtn.active{
@@ -101,30 +86,17 @@
       background:rgba(125,211,252,.12);
     }
 
-    main{
-      flex:1;
-      display:flex;
-      min-height:0;
-    }
+    main{flex:1;display:flex;min-height:0}
 
     .left{
-      flex:1;
-      min-width:0;
-      display:flex;
-      flex-direction:column;
+      flex:1;min-width:0;
+      display:flex;flex-direction:column;
       border-right:1px solid var(--line);
     }
 
-    .canvasWrap{
-      position:relative;
-      flex:1;
-      min-height:0;
-      padding:10px;
-    }
-
+    .canvasWrap{position:relative;flex:1;min-height:0;padding:10px}
     canvas{
-      width:100%;
-      height:100%;
+      width:100%;height:100%;
       border-radius:18px;
       background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
       border:1px solid rgba(255,255,255,.10);
@@ -133,16 +105,13 @@
     }
 
     .hud{
-      position:absolute;
-      left:18px; top:18px;
-      display:flex;
-      gap:10px;
-      align-items:center;
-      padding:10px 12px;
-      border-radius:14px;
+      position:absolute;left:18px;top:18px;
+      display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+      padding:10px 12px;border-radius:16px;
       background:rgba(0,0,0,.28);
       border:1px solid rgba(255,255,255,.12);
       backdrop-filter: blur(10px);
+      max-width: calc(100% - 36px);
     }
     .hud label{
       font-size:12px;color:var(--muted);
@@ -151,152 +120,93 @@
     }
     .hud input[type="checkbox"]{transform:scale(1.05)}
     .hud .pill{
-      height:30px;
-      padding:0 10px;
-      border-radius:12px;
+      height:32px;padding:0 10px;border-radius:12px;
       border:1px solid rgba(255,255,255,.12);
       background:rgba(255,255,255,.06);
       display:flex;align-items:center;gap:8px;
       font-size:12px;color:var(--muted);
     }
+    .hud .pill .unit{color:rgba(255,255,255,.40);font-weight:800}
     .hud input[type="number"]{
-      width:86px;
-      background:transparent;
-      border:none;
-      color:var(--text);
-      font-weight:800;
-      outline:none;
-      text-align:right;
+      width:82px;background:transparent;border:none;
+      color:var(--text);font-weight:900;outline:none;text-align:right;
     }
     .hud .smallBtn{
-      height:30px;
-      padding:0 10px;
-      border-radius:12px;
+      height:32px;padding:0 10px;border-radius:12px;
       border:1px solid rgba(255,255,255,.12);
       background:rgba(255,255,255,.06);
-      color:var(--text);
-      font-weight:800;
-      cursor:pointer;
+      color:var(--text);font-weight:900;cursor:pointer;
     }
     .hud .smallBtn:hover{background:rgba(255,255,255,.09)}
+    .hud .divider{
+      width:1px;height:26px;background:rgba(255,255,255,.12);
+      margin:0 2px;
+    }
 
     .right{
-      width:520px;
-      display:flex;
-      flex-direction:column;
-      min-width:420px;
-      max-width:720px;
+      width:520px;min-width:420px;max-width:720px;
+      display:flex;flex-direction:column;min-height:0;
       background:linear-gradient(180deg, rgba(15,26,51,.7), rgba(10,18,34,.7));
     }
 
-    .pane{
-      display:none;
-      flex-direction:column;
-      min-height:0;
-      height:100%;
-    }
+    .pane{display:none;flex-direction:column;min-height:0;height:100%}
     .pane.active{display:flex}
 
     .controls{
-      padding:14px;
-      border-bottom:1px solid var(--line);
-      display:flex;
-      flex-direction:column;
-      gap:10px;
+      padding:14px;border-bottom:1px solid var(--line);
+      display:flex;flex-direction:column;gap:10px;
     }
-
-    .row{
-      display:flex;
-      gap:10px;
-      align-items:center;
-      flex-wrap:wrap;
-    }
-
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
     .btn{
-      height:40px;
-      padding:0 14px;
-      border-radius:14px;
+      height:40px;padding:0 14px;border-radius:14px;
       border:1px solid rgba(255,255,255,.12);
       background:rgba(255,255,255,.06);
-      color:var(--text);
-      font-weight:900;
-      cursor:pointer;
+      color:var(--text);font-weight:900;cursor:pointer;
     }
     .btn:hover{background:rgba(255,255,255,.09)}
-    .btn:disabled{opacity:.45; cursor:not-allowed}
+    .btn:disabled{opacity:.45;cursor:not-allowed}
 
     .file{
-      height:40px;
-      padding:9px 12px;
-      border-radius:14px;
+      height:40px;padding:9px 12px;border-radius:14px;
       border:1px solid rgba(255,255,255,.12);
       background:rgba(255,255,255,.04);
-      color:var(--muted);
-      font-weight:700;
+      color:var(--muted);font-weight:800;
     }
 
     .field{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      padding:10px 12px;
-      border-radius:14px;
+      display:flex;align-items:center;gap:10px;
+      padding:10px 12px;border-radius:14px;
       border:1px solid rgba(255,255,255,.10);
       background:rgba(255,255,255,.04);
+      min-width: 240px;
+      flex:1;
     }
     .field label{font-size:12px;color:var(--muted);min-width:110px}
     .field input, .field select{
-      flex:1;
-      height:30px;
-      background:rgba(0,0,0,.15);
+      flex:1;height:30px;background:rgba(0,0,0,.15);
       border:1px solid rgba(255,255,255,.10);
-      border-radius:10px;
-      color:var(--text);
-      padding:0 10px;
-      outline:none;
-      font-weight:800;
+      border-radius:10px;color:var(--text);
+      padding:0 10px;outline:none;font-weight:900;
     }
     .field input[type="number"]{text-align:right}
 
     .ncToolbar{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      align-items:center;
-      justify-content:space-between;
-      padding:10px 14px;
-      border-bottom:1px solid var(--line);
+      display:flex;gap:10px;flex-wrap:wrap;
+      align-items:center;justify-content:space-between;
+      padding:10px 14px;border-bottom:1px solid var(--line);
     }
-    .ncToolbar .leftBtns,
-    .ncToolbar .rightBtns{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
-
-    .hint{
-      font-size:12px;
-      color:var(--muted2);
-    }
+    .ncToolbar .leftBtns,.ncToolbar .rightBtns{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .hint{font-size:12px;color:var(--muted2)}
 
     .ncBox{
-      flex:1;
-      min-height:0;
-      overflow:auto;
+      flex:1;min-height:0;overflow:auto;
       padding:12px 14px;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-      font-size:12px;
-      line-height:1.45;
+      font-size:12px;line-height:1.45;
+      scroll-behavior:smooth;
     }
-
-    .ncLine{
-      display:flex;
-      gap:10px;
-      padding:2px 6px;
-      border-radius:8px;
-    }
-    .ncLine .ln{
-      width:52px;
-      color:rgba(255,255,255,.35);
-      text-align:right;
-      user-select:none;
-    }
+    .ncLine{display:flex;gap:10px;padding:2px 6px;border-radius:8px}
+    .ncLine .ln{width:52px;color:rgba(255,255,255,.35);text-align:right;user-select:none}
     .ncLine .code{white-space:pre}
     .ncLine.hi{
       background:rgba(125,211,252,.12);
@@ -304,10 +214,8 @@
     }
 
     .footerNote{
-      padding:10px 14px;
-      border-top:1px solid var(--line);
-      color:var(--muted2);
-      font-size:12px;
+      padding:10px 14px;border-top:1px solid var(--line);
+      color:var(--muted2);font-size:12px;
     }
   </style>
 </head>
@@ -352,16 +260,26 @@
         <div class="hud">
           <label title="Toggle machine footprint overlay">
             <input id="showFootprint" type="checkbox" checked />
-            Show footprint
+            Footprint
           </label>
 
-          <div class="pill" title="Scale the imported DXF inside NorrisCAM (does not change your machine units)">
-            Scale %
+          <div class="divider"></div>
+
+          <div class="pill" title="Scale the imported DXF inside NorrisCAM">
+            Scale
             <input id="scalePct" type="number" value="100" min="1" max="5000" step="1" />
+            <span class="unit">%</span>
           </div>
 
-          <button id="applyScale" class="smallBtn" type="button" title="Apply Scale (keeps the view stable)">Apply</button>
-          <button id="fitToMachine" class="smallBtn" type="button" title="Set scale so geometry fits machine travel (warn-only, doesn’t auto-refit view)">Fit</button>
+          <div class="pill" title="Rotate the imported DXF inside NorrisCAM (degrees)">
+            Rotate
+            <input id="rotDeg" type="number" value="0" min="-360" max="360" step="1" />
+            <span class="unit">°</span>
+          </div>
+
+          <button id="applyTransform" class="smallBtn" type="button" title="Apply Scale + Rotate (keeps view stable)">Apply</button>
+          <button id="fitToMachine" class="smallBtn" type="button" title="Set scale so rotated geometry fits machine travel">Fit</button>
+          <button id="resetTransform" class="smallBtn" type="button" title="Reset Scale=100% and Rotate=0°">Reset</button>
         </div>
       </div>
     </section>
@@ -433,7 +351,6 @@
             <button id="playBtn" class="btn" type="button" disabled>Play (Space)</button>
             <button id="pauseBtn" class="btn" type="button" disabled>Pause</button>
           </div>
-
           <div class="rightBtns">
             <div class="hint">Reveal from line 1 • Cursor pinned at 0.33</div>
           </div>
@@ -442,7 +359,7 @@
         <div id="ncBox" class="ncBox"></div>
 
         <div class="footerNote">
-          Machine footprint: X travel = 15" (back↔front), Y travel = 20" (right↔left). Home = back-right.
+          Footprint: X travel = 15" (back↔front), Y travel = 20" (right↔left). HOME dot = top-right.
         </div>
       </div>
 
@@ -476,14 +393,13 @@
         </div>
 
         <div class="footerNote">
-          Pro tip: Keep geometry within ±7.50" in X and ±10.00" in Y (center-zero workflow) to avoid overtravel.
+          Center-zero workflow: keep geometry within ±7.50" (X) and ±10.00" (Y) to avoid overtravel.
         </div>
       </div>
     </section>
   </main>
 </div>
 
-<!-- DXF parser dependency -->
 <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
 <script src="./app.js"></script>
 </body>
