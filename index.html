@@ -17,7 +17,7 @@
       --bad:#ff7a7a;
       --stroke:rgba(255,255,255,.08);
       --shadow: 0 14px 40px rgba(0,0,0,.35);
-      --ncW: 280px; /* NC pane ~2/3 size so model view stays big */
+      --ncW: 300px;
     }
     *{box-sizing:border-box}
     body{
@@ -41,7 +41,6 @@
       overflow:hidden;
     }
 
-    /* LEFT */
     .left{ padding:14px; display:flex; flex-direction:column; gap:12px; }
     .brand{
       display:flex; gap:12px; align-items:center;
@@ -101,7 +100,6 @@
     }
     .btn:disabled{ opacity:.45; cursor:not-allowed; }
 
-    /* Tabs */
     .tabs{
       display:grid;
       grid-template-columns:1fr 1fr;
@@ -154,7 +152,6 @@
     .sw.cut{ background: rgba(255,122,122,.9); }
     .sw.rapid{ background: rgba(122,167,255,.55); }
 
-    /* RIGHT LAYOUT */
     .rightGrid{
       display:grid;
       grid-template-columns: 1fr var(--ncW);
@@ -164,7 +161,7 @@
     .pane{
       display:flex; flex-direction:column;
       border-left:1px solid var(--stroke);
-      min-width: 220px;
+      min-width: 240px;
     }
     .paneHead{
       display:flex; align-items:center; justify-content:space-between;
@@ -182,7 +179,6 @@
       background: radial-gradient(900px 500px at 40% 20%, rgba(125,211,252,.06) 0%, rgba(0,0,0,0) 55%);
     }
 
-    /* NC viewer */
     .ncWrap{ display:flex; flex-direction:column; height:100%; }
     .ncToolbar{
       display:flex; gap:10px; align-items:center; padding:10px 12px;
@@ -305,10 +301,11 @@
           </div>
 
           <div style="margin-top:10px;" class="legend">
-            <span class="chip"><span class="sw cut"></span> Cut (reveals on S)</span>
-            <span class="chip"><span class="sw rapid"></span> Rapid (reveals on S)</span>
+            <span class="chip"><span class="sw cut"></span> Cut (red)</span>
+            <span class="chip"><span class="sw rapid"></span> Rapid (dashed)</span>
             <span class="chip">S = Step</span>
             <span class="chip">B = Back</span>
+            <span class="chip">Space = Play/Pause</span>
           </div>
         </div>
       </div>
@@ -322,7 +319,7 @@
             <div><label>Chain Tol (in)</label><input id="chainTol" type="number" step="0.001" value="0.02"></div>
           </div>
           <div style="margin-top:10px; color:var(--muted); font-size:12px;">
-            Used to connect geometry into continuous tool-down chains. Usually leave these alone.
+            Used to connect geometry into continuous tool-down chains.
           </div>
         </div>
       </div>
@@ -357,7 +354,9 @@
           <div class="ncToolbar">
             <button id="back" class="btn ghost" disabled style="padding:10px 12px;">Back (B)</button>
             <button id="step" class="btn ghost" disabled style="padding:10px 12px;">Step (S)</button>
-            <span class="hint">NC auto-scrolls to each step line</span>
+            <button id="play" class="btn ghost" disabled style="padding:10px 12px;">Play</button>
+            <button id="pause" class="btn ghost" disabled style="padding:10px 12px;">Pause</button>
+            <span class="hint">NC scroll stays inside this panel</span>
           </div>
 
           <div id="ncBox" class="ncBox"></div>
