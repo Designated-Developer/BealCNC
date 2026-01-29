@@ -1,9 +1,11 @@
-// NorrisCAM — DXF preview + tolerant toolpath + USB-ready .NC (inches)
-// New:
-// - NC preview moved to right (rendered with highlightable lines)
-// - Step button + hotkey "S" steps to next motion line (G0/G1 XY), syncing sim + highlight
-// - Tool stays down across continuous chains; retract only for true rapids
-// - No spindle codes
+// NorrisCAM — DXF preview + tolerant toolpath + USB-ready .DAT (inches)
+// Updates:
+// - NC pane smaller so part view stays large
+// - Tabs: Main / Options (tolerances live in Options)
+// - Step (S) + Back (B)
+// - Export prompts filename and saves .dat
+// - Removed Copy NC, replaced with Reset Sim
+// - Tool stays down across continuous chains; retract only for true rapids/reposition
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("c");
@@ -11,12 +13,11 @@ const ctx = canvas.getContext("2d");
 
 let dxfParsed = null;
 let previewSegs = [];
-let playback = [];           // sim segments
-let moves = [];              // move objects
-let ncLines = [];            // array of NC lines
-let motionLineIdxs = [];     // NC line indices that represent motion (G0 XY / G1 XY)
-let motionCum = [];          // cumulative distances for each motion step for scrub positioning
-let stepPtr = -1;            // current step index into motionLineIdxs
+let playback = [];
+let moves = [];
+let ncLines = [];
+let motionLineIdxs = [];
+let stepPtr = -1;
 let lastNC = "";
 let playing = false;
 
@@ -71,7 +72,6 @@ function collinear(a,b,c,eps){
   return Math.abs((b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)) <= eps;
 }
 
-// ----- Point normalization -----
 function xyOf(pt){
   if(!pt) return null;
   if(Array.isArray(pt) && pt.length >= 2 && isFinite(pt[0]) && isFinite(pt[1])){
@@ -88,7 +88,6 @@ function xyOf(pt){
   return null;
 }
 
-// ----- DXF extract: LINE + polyline + spline fallback to lines -----
 function extractSegments(dxf){
   const out = [];
   const ents = dxf?.entities || [];
@@ -101,12 +100,8 @@ function extractSegments(dxf){
     }
 
     if(e.type === "LWPOLYLINE" || e.type === "POLYLINE"){
-      const verts = (e.vertices || [])
-        .map(v => xyOf(v))
-        .filter(Boolean);
-
+      const verts = (e.vertices || []).map(v => xyOf(v)).filter(Boolean);
       if(verts.length < 2) continue;
-
       for(let i=0;i<verts.length-1;i++){
         out.push({kind:"line", a:verts[i], b:verts[i+1]});
       }
@@ -116,6 +111,7 @@ function extractSegments(dxf){
       continue;
     }
 
+    // SPLINE fallback (rough) — many student DXFs contain splines from tracing
     if(e.type === "SPLINE"){
       const ptsRaw = (e.fitPoints && e.fitPoints.length ? e.fitPoints : e.controlPoints) || [];
       const pts = ptsRaw.map(xyOf).filter(Boolean);
@@ -131,7 +127,6 @@ function extractSegments(dxf){
   return out;
 }
 
-// ----- Origin shift -----
 function boundsOfSegments(segs){
   let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
   for(const s of segs){
@@ -157,7 +152,6 @@ function applyOriginShift(segs, origin){
   return segs.map(s => ({kind:"line", a:{x:s.a.x+dx,y:s.a.y+dy}, b:{x:s.b.x+dx,y:s.b.y+dy}}));
 }
 
-// ----- Simplify / chain -----
 function mergeCollinear(pathSegs, tol){
   const out=[];
   if(!Array.isArray(pathSegs) || pathSegs.length===0) return out;
@@ -281,7 +275,6 @@ function orderPathsNearest(paths){
   return ordered;
 }
 
-// Merge paths where end ~ next start => tool stays down
 function mergeContinuousPaths(paths, chainTol){
   if(paths.length <= 1) return paths;
   const out=[];
@@ -303,7 +296,6 @@ function mergeContinuousPaths(paths, chainTol){
   return out;
 }
 
-// ----- Moves / NC (retract only when needed) -----
 function buildMoves(paths, opts){
   const m=[];
   const depth = Math.abs(opts.totalDepth);
@@ -334,7 +326,7 @@ function buildMoves(paths, opts){
       if(!p?.segments?.length) continue;
       const start = p.segments[0].a;
 
-      // reposition only if needed
+      // Only retract + rapid if we truly need to reposition
       if(!samePt(curXY, start, opts.chainTol) || curZ !== passZ){
         retract();
         if(!samePt(curXY, start, opts.chainTol)){
@@ -349,7 +341,7 @@ function buildMoves(paths, opts){
       for(const s of p.segments){
         cutTo(s.b.x, s.b.y);
       }
-      // do NOT retract here
+      // Tool stays DOWN between paths that are continuous (mergeContinuousPaths handles most cases)
     }
     retract();
   }
@@ -360,7 +352,7 @@ function buildMoves(paths, opts){
 function buildNCWithMap(moves, opts){
   const P = opts.outPrec;
   const g=[];
-  const moveToNcLine = new Map(); // map move index -> NC line index
+  const moveToNcLine = new Map();
 
   const push = (line, moveIdx=null) => {
     const idx = g.length;
@@ -369,7 +361,7 @@ function buildNCWithMap(moves, opts){
   };
 
   push("%");
-  push("(NorrisCAM - USB G-code)");
+  push("(NorrisCAM - USB DAT G-code)");
   push(opts.toolComment);
   push("G90 (absolute)");
   push("G94 (feed/min)");
@@ -424,14 +416,9 @@ function buildNCWithMap(moves, opts){
   push("M30 (end)");
   push("%");
 
-  return {
-    ncText: g.join("\n"),
-    lines: g,
-    moveToNcLine
-  };
+  return { ncText: g.join("\n"), lines: g, moveToNcLine };
 }
 
-// ----- Simulation: include mapping to move indices -----
 function buildPlayback(moves){
   const segs=[];
   let cur={x:0,y:0};
@@ -469,14 +456,13 @@ function pointAtT(t){
   return { x: s.a.x + (s.b.x-s.a.x)*u, y: s.a.y + (s.b.y-s.a.y)*u, mode: s.mode };
 }
 
-// ----- Render NC with highlight -----
 function escapeHtml(s){
   return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 function renderNC(highlightLineIndex = -1){
   const box = $("ncBox");
   if(!ncLines.length){
-    box.innerHTML = `<div class="line dim">NC will appear here after Build…</div>`;
+    box.innerHTML = `<div class="line dim">DAT will appear here after Build…</div>`;
     $("ncLineHud").textContent = "Line: —";
     return;
   }
@@ -497,8 +483,17 @@ function renderNC(highlightLineIndex = -1){
   }
 }
 
+function rebuildMotionSteps(moveToNcLine){
+  motionLineIdxs = [];
+  for(const seg of playback){
+    const ln = moveToNcLine.get(seg.moveIdx);
+    if(typeof ln === "number") motionLineIdxs.push(ln);
+  }
+  stepPtr = -1;
+  renderNC(-1);
+}
+
 function setStepToPlaybackIndex(playIdx){
-  // convert playback index -> scrub fraction
   if(!playback.length) return;
   const total = playback[playback.length-1].cum || 1;
   const targetCum = playback[playIdx].cum;
@@ -507,31 +502,13 @@ function setStepToPlaybackIndex(playIdx){
   draw();
 }
 
-// Build motion stepping arrays:
-// motion steps = playback segments (each corresponds to a motion move) + their NC line
-function rebuildMotionSteps(moveToNcLine){
-  motionLineIdxs = [];
-  motionCum = [];
-
-  for(const seg of playback){
-    const ln = moveToNcLine.get(seg.moveIdx);
-    if(typeof ln === "number"){
-      motionLineIdxs.push(ln);
-      motionCum.push(seg.cum);
-    }
-  }
-  stepPtr = -1;
-  renderNC(-1);
-}
-
-// Step forward to next motion
-function stepOnce(){
+function stepOnce(dir){
   if(!playback.length || !motionLineIdxs.length) return;
 
-  stepPtr = Math.min(motionLineIdxs.length - 1, stepPtr + 1);
+  if(dir > 0) stepPtr = Math.min(motionLineIdxs.length - 1, stepPtr + 1);
+  else stepPtr = Math.max(0, stepPtr - 1);
 
-  // find playback index for this stepPtr (1:1)
-  const playIdx = stepPtr; // because arrays built from playback in order
+  const playIdx = stepPtr; // 1:1 map built from playback order
   setStepToPlaybackIndex(playIdx);
 
   const ln = motionLineIdxs[stepPtr];
@@ -654,7 +631,7 @@ function draw(){
   }
 }
 
-// ----- Pan/Zoom -----
+// Pan/Zoom
 canvas.addEventListener("mousedown",(e)=>{ view.dragging=true; view.lx=e.clientX; view.ly=e.clientY; });
 window.addEventListener("mouseup",()=>{ view.dragging=false; });
 window.addEventListener("mousemove",(e)=>{
@@ -677,7 +654,18 @@ canvas.addEventListener("wheel",(e)=>{
   draw();
 },{passive:false});
 
-// ----- UI wiring -----
+// Tabs
+function setTab(which){
+  const isMain = which === "main";
+  $("tabMain").classList.toggle("active", isMain);
+  $("tabOptions").classList.toggle("active", !isMain);
+  $("paneMain").classList.toggle("active", isMain);
+  $("paneOptions").classList.toggle("active", !isMain);
+}
+$("tabMain").addEventListener("click", ()=>setTab("main"));
+$("tabOptions").addEventListener("click", ()=>setTab("options"));
+
+// UI wiring
 $("file").addEventListener("change", async (e)=>{
   const f=e.target.files?.[0];
   if(!f) return;
@@ -712,13 +700,15 @@ $("file").addEventListener("change", async (e)=>{
   lastNC = "";
   ncLines = [];
   motionLineIdxs = [];
-  motionCum = [];
   stepPtr = -1;
+  playing = false;
 
   $("buildToolpath").disabled = false;
   $("download").disabled = true;
-  $("copyNC").disabled = true;
   $("fit").disabled = false;
+  $("resetSim").disabled = true;
+
+  $("back").disabled = true;
   $("step").disabled = true;
   $("play").disabled = true;
   $("pause").disabled = true;
@@ -726,7 +716,10 @@ $("file").addEventListener("change", async (e)=>{
   $("scrub").value = "0";
 
   renderNC(-1);
+
+  // Only auto-fit on import (so students instantly see it)
   fitViewToSegments(previewSegs);
+
   setStatus("good","Loaded", `Segments extracted: ${segs.length}. Click Build.`);
   draw();
 });
@@ -738,7 +731,7 @@ $("buildToolpath").addEventListener("click", ()=>{
   }
 
   try{
-    setStatus("warn","Building…","Chaining + NC + step map");
+    setStatus("warn","Building…","Chaining + DAT + step map");
     const opts=readOpts();
 
     let segs = extractSegments(dxfParsed);
@@ -765,18 +758,21 @@ $("buildToolpath").addEventListener("click", ()=>{
     rebuildMotionSteps(moveToNcLine);
 
     $("download").disabled = false;
-    $("copyNC").disabled = false;
+    $("resetSim").disabled = false;
+
+    $("back").disabled = false;
     $("step").disabled = false;
     $("play").disabled = false;
     $("pause").disabled = false;
     $("scrub").disabled = false;
     $("scrub").value = "0";
-    playing = false;
 
+    playing = false;
+    stepPtr = -1;
     renderNC(-1);
 
-    const ncCount = ncLines.length;
-    setStatus("good","Built", `Paths: ${paths.length} | NC lines: ${ncCount} | Step: ${motionLineIdxs.length} moves`);
+    // IMPORTANT: do NOT auto-fit or change view on build (you asked for stable view)
+    setStatus("good","Built", `Paths: ${paths.length} | DAT lines: ${ncLines.length} | Motion steps: ${motionLineIdxs.length}`);
     draw();
   }catch(err){
     console.error(err);
@@ -787,31 +783,40 @@ $("buildToolpath").addEventListener("click", ()=>{
 
 $("download").addEventListener("click", ()=>{
   if(!lastNC) return;
+
+  let name = prompt("File name for USB export:", "output.dat");
+  if(name === null) return; // cancelled
+
+  name = name.trim();
+  if(!name) name = "output.dat";
+  if(!name.toLowerCase().endsWith(".dat")) name += ".dat";
+
   const blob=new Blob([lastNC],{type:"text/plain"});
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob);
-  a.download="output.nc";
+  a.download=name;
   a.click();
   URL.revokeObjectURL(a.href);
-});
 
-$("copyNC").addEventListener("click", async ()=>{
-  if(!lastNC) return;
-  try{
-    await navigator.clipboard.writeText(lastNC);
-    setStatus("good","Copied","NC copied to clipboard");
-  }catch{
-    alert("Copy failed. You can still select/copy from the NC panel.");
-  }
+  setStatus("good","Exported", `Saved ${name}`);
 });
 
 $("fit").addEventListener("click", ()=>{
+  // Manual fit only (teacher-controlled)
   if(playback.length){
     const segs = playback.map(s=>({a:s.a,b:s.b}));
     fitViewToSegments(segs);
   } else {
     fitViewToSegments(previewSegs);
   }
+  draw();
+});
+
+$("resetSim").addEventListener("click", ()=>{
+  playing = false;
+  $("scrub").value = "0";
+  stepPtr = -1;
+  renderNC(-1);
   draw();
 });
 
@@ -824,10 +829,13 @@ $("origin").addEventListener("change", ()=>{
   previewSegs = segs.map(s=>({a:s.a,b:s.b}));
 
   playback=[]; moves=[]; lastNC="";
-  ncLines=[]; motionLineIdxs=[]; motionCum=[]; stepPtr=-1;
+  ncLines=[]; motionLineIdxs=[]; stepPtr=-1;
+  playing=false;
 
   $("download").disabled=true;
-  $("copyNC").disabled=true;
+  $("resetSim").disabled=true;
+
+  $("back").disabled=true;
   $("step").disabled=true;
   $("play").disabled=true;
   $("pause").disabled=true;
@@ -836,25 +844,30 @@ $("origin").addEventListener("change", ()=>{
 
   renderNC(-1);
 
+  // Auto-fit on origin change so preview stays “correct”
   fitViewToSegments(previewSegs);
-  setStatus("warn","Origin changed","Preview updated — rebuild toolpath for NC");
+
+  setStatus("warn","Origin changed","Preview updated — rebuild toolpath for DAT");
   draw();
 });
 
-// Step button + hotkey S
-$("step").addEventListener("click", ()=>{
-  playing = false;
-  stepOnce();
-});
+// Step + Back buttons + hotkeys
+$("step").addEventListener("click", ()=>{ playing=false; stepOnce(+1); });
+$("back").addEventListener("click", ()=>{ playing=false; stepOnce(-1); });
+
 window.addEventListener("keydown", (e)=>{
-  if(e.key === "s" || e.key === "S"){
-    if($("step").disabled) return;
-    // don’t trigger while typing in inputs
-    const t = document.activeElement?.tagName?.toLowerCase();
-    if(t === "input" || t === "select" || t === "textarea") return;
+  const t = document.activeElement?.tagName?.toLowerCase();
+  if(t === "input" || t === "select") return;
+
+  if((e.key === "s" || e.key === "S") && !$("step").disabled){
     e.preventDefault();
     playing = false;
-    stepOnce();
+    stepOnce(+1);
+  }
+  if((e.key === "b" || e.key === "B") && !$("back").disabled){
+    e.preventDefault();
+    playing = false;
+    stepOnce(-1);
   }
 });
 
@@ -862,10 +875,8 @@ $("play").addEventListener("click", ()=>{ if(playback.length) playing=true; });
 $("pause").addEventListener("click", ()=>{ playing=false; });
 $("scrub").addEventListener("input", ()=>{
   playing=false;
+  renderNC(-1); // scrubbing is “free mode”
   draw();
-  // when scrubbing manually, turn off highlight (keeps it simple)
-  renderNC(-1);
-  $("ncLineHud").textContent = "Line: —";
 });
 
 function tick(){
