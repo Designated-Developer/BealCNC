@@ -17,6 +17,7 @@
       --bad:#ff7a7a;
       --stroke:rgba(255,255,255,.08);
       --shadow: 0 14px 40px rgba(0,0,0,.35);
+      --ncW: 280px; /* was 420px — now ~2/3 so the part view stays big */
     }
     *{box-sizing:border-box}
     body{
@@ -100,11 +101,35 @@
     }
     .btn:disabled{ opacity:.45; cursor:not-allowed; }
 
+    /* Tabs */
+    .tabs{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+    }
+    .tabBtn{
+      padding:10px 12px;
+      border-radius:14px;
+      border:1px solid var(--stroke);
+      background: rgba(255,255,255,.06);
+      color: var(--muted);
+      font-weight:900;
+      cursor:pointer;
+    }
+    .tabBtn.active{
+      background: rgba(125,211,252,.16);
+      border-color: rgba(125,211,252,.28);
+      color: var(--ink);
+    }
+    .tabPane{ display:none; }
+    .tabPane.active{ display:block; }
+
     .section{
       padding:12px;
       border-radius:16px;
       border:1px solid var(--stroke);
       background: rgba(16,31,54,.45);
+      margin-top:12px;
     }
     .section h3{
       margin:0 0 10px 0; font-size:13px; letter-spacing:.3px; color:var(--muted);
@@ -113,7 +138,7 @@
     .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
     .grid3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
     label{ color:var(--muted); font-size:12px; display:block; margin-bottom:6px; }
-    input[type="number"], select, textarea{
+    input[type="number"], select{
       width:100%;
       padding:10px 10px;
       border-radius:12px;
@@ -129,16 +154,17 @@
     .sw.cut{ background: rgba(255,122,122,.9); }
     .sw.rapid{ background: rgba(122,167,255,.8); }
 
-    /* RIGHT LAYOUT: canvas + NC */
+    /* RIGHT LAYOUT */
     .rightGrid{
       display:grid;
-      grid-template-columns: 1fr 420px;
+      grid-template-columns: 1fr var(--ncW);
       height: calc(100vh - 14px*2);
       min-height:520px;
     }
     .pane{
       display:flex; flex-direction:column;
       border-left:1px solid var(--stroke);
+      min-width: 220px;
     }
     .paneHead{
       display:flex; align-items:center; justify-content:space-between;
@@ -148,11 +174,7 @@
     }
     .paneHead .title{ color:var(--muted); font-size:12px; }
     .paneHead .hud{ display:flex; gap:14px; align-items:center; color:var(--muted); font-size:12px; }
-    .canvasWrap{
-      position:relative;
-      height:100%;
-      min-height:520px;
-    }
+    .canvasWrap{ position:relative; height:100%; min-height:520px; }
     canvas{
       width:100%;
       height:100%;
@@ -166,6 +188,7 @@
       display:flex; gap:10px; align-items:center; padding:10px 12px;
       border-bottom:1px solid var(--stroke);
       background: rgba(16,31,54,.22);
+      flex-wrap:wrap;
     }
     .ncToolbar .hint{ color:var(--muted); font-size:12px; margin-left:auto; }
     .ncBox{
@@ -213,12 +236,13 @@
       <div class="brand">
         <div class="logo" aria-hidden="true">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <path d="M7 18V6h5.4c2.9 0 4.6 1.6 4.6 3.9 0 1.6-.9 2.8-2.2 3.3 1.8.4 3 1.8 3 3.7 0 2.7-2 4.1-5 4.1H7Z" stroke="rgba(7,16,29,.95)" stroke-width="2" stroke-linecap="round"/>
+            <path d="M7 18V6h5.4c2.9 0 4.6 1.6 4.6 3.9 0 1.6-.9 2.8-2.2 3.3 1.8.4 3 1.8 3 3.7 0 2.7-2 4.1-5 4.1H7Z"
+              stroke="rgba(7,16,29,.95)" stroke-width="2" stroke-linecap="round"/>
           </svg>
         </div>
         <div>
           <h1>NorrisCAM</h1>
-          <div class="sub">DXF → Toolpath → USB-ready .NC (inches)</div>
+          <div class="sub">DXF → Toolpath → USB-ready .DAT (inches)</div>
         </div>
       </div>
 
@@ -232,60 +256,75 @@
       </div>
 
       <div class="actions">
-        <button id="buildToolpath" class="btn primary" disabled>Build Toolpath + NC</button>
-        <button id="download" class="btn ghost" disabled>Download .nc</button>
+        <button id="buildToolpath" class="btn primary" disabled>Build Toolpath + DAT</button>
+        <button id="download" class="btn ghost" disabled>Export .dat</button>
       </div>
 
       <div class="actions">
         <button id="fit" class="btn ghost" disabled>Fit View</button>
-        <button id="copyNC" class="btn ghost" disabled>Copy NC</button>
+        <button id="resetSim" class="btn ghost" disabled>Reset Sim</button>
       </div>
 
-      <div class="section">
-        <h3>Core settings</h3>
-        <div class="grid2">
-          <div>
-            <label>Units</label>
-            <select id="units">
-              <option value="inch" selected>Inches (G20)</option>
-            </select>
-          </div>
-          <div>
-            <label>XY Origin</label>
-            <select id="origin">
-              <option value="center" selected>Center</option>
-              <option value="ul">Upper-Left</option>
-              <option value="ur">Upper-Right</option>
-              <option value="ll">Lower-Left</option>
-              <option value="lr">Lower-Right</option>
-            </select>
-          </div>
-        </div>
+      <div class="tabs">
+        <button id="tabMain" class="tabBtn active">Main</button>
+        <button id="tabOptions" class="tabBtn">Options</button>
+      </div>
 
-        <div class="grid3" style="margin-top:10px;">
-          <div><label>Safe Z (in)</label><input id="safeZ" type="number" step="0.01" value="0.50"></div>
-          <div><label>Cut Depth (in)</label><input id="cutZ" type="number" step="0.001" value="0.0625"></div>
-          <div><label>Stepdown (in)</label><input id="stepDown" type="number" step="0.001" value="0.0625"></div>
-        </div>
+      <div id="paneMain" class="tabPane active">
+        <div class="section">
+          <h3>Core settings</h3>
+          <div class="grid2">
+            <div>
+              <label>Units</label>
+              <select id="units">
+                <option value="inch" selected>Inches (G20)</option>
+              </select>
+            </div>
+            <div>
+              <label>XY Origin</label>
+              <select id="origin">
+                <option value="center" selected>Center</option>
+                <option value="ul">Upper-Left</option>
+                <option value="ur">Upper-Right</option>
+                <option value="ll">Lower-Left</option>
+                <option value="lr">Lower-Right</option>
+              </select>
+            </div>
+          </div>
 
-        <div class="grid3" style="margin-top:10px;">
-          <div><label>Feed XY (ipm)</label><input id="feedXY" type="number" step="1" value="30"></div>
-          <div><label>Feed Z (ipm)</label><input id="feedZ" type="number" step="1" value="20"></div>
-          <div><label>Output Prec (in)</label><input id="outPrec" type="number" step="0.001" value="0.01"></div>
+          <div class="grid3" style="margin-top:10px;">
+            <div><label>Safe Z (in)</label><input id="safeZ" type="number" step="0.01" value="0.50"></div>
+            <div><label>Cut Depth (in)</label><input id="cutZ" type="number" step="0.001" value="0.0625"></div>
+            <div><label>Stepdown (in)</label><input id="stepDown" type="number" step="0.001" value="0.0625"></div>
+          </div>
+
+          <div class="grid3" style="margin-top:10px;">
+            <div><label>Feed XY (ipm)</label><input id="feedXY" type="number" step="1" value="30"></div>
+            <div><label>Feed Z (ipm)</label><input id="feedZ" type="number" step="1" value="20"></div>
+            <div><label>Output Prec (in)</label><input id="outPrec" type="number" step="0.001" value="0.01"></div>
+          </div>
+
+          <div style="margin-top:10px;" class="legend">
+            <span class="chip"><span class="sw cut"></span> Cut</span>
+            <span class="chip"><span class="sw rapid"></span> Rapid</span>
+            <span class="chip">S = Step</span>
+            <span class="chip">B = Back</span>
+          </div>
         </div>
       </div>
 
-      <div class="section">
-        <h3>Tracing tolerance</h3>
-        <div class="grid3">
-          <div><label>Snap Grid (in)</label><input id="snapGrid" type="number" step="0.001" value="0.02"></div>
-          <div><label>Angle Tol (deg)</label><input id="angleTolDeg" type="number" step="1" value="12"></div>
-          <div><label>Chain Tol (in)</label><input id="chainTol" type="number" step="0.001" value="0.02"></div>
-        </div>
-        <div style="margin-top:10px;" class="legend">
-          <span class="chip"><span class="sw cut"></span> Cut</span>
-          <span class="chip"><span class="sw rapid"></span> Rapid</span>
-          <span class="chip">S key = Step</span>
+      <div id="paneOptions" class="tabPane">
+        <div class="section">
+          <h3>Tracing tolerance</h3>
+          <div class="grid3">
+            <div><label>Snap Grid (in)</label><input id="snapGrid" type="number" step="0.001" value="0.02"></div>
+            <div><label>Angle Tol (deg)</label><input id="angleTolDeg" type="number" step="1" value="12"></div>
+            <div><label>Chain Tol (in)</label><input id="chainTol" type="number" step="0.001" value="0.02"></div>
+          </div>
+          <div style="margin-top:10px; color:var(--muted); font-size:12px;">
+            These only affect how NorrisCAM “connects” DXF geometry into continuous tool-down paths.
+            Students usually don’t touch these.
+          </div>
         </div>
       </div>
 
@@ -312,15 +351,16 @@
         <!-- NC side -->
         <div class="pane">
           <div class="paneHead">
-            <div class="title">NC Code</div>
+            <div class="title">DAT (G-code)</div>
             <div class="hud"><span id="ncLineHud">Line: —</span></div>
           </div>
 
           <div class="ncToolbar">
+            <button id="back" class="btn ghost" disabled style="padding:10px 12px;">Back (B)</button>
             <button id="step" class="btn ghost" disabled style="padding:10px 12px;">Step (S)</button>
             <button id="play" class="btn ghost" disabled style="padding:10px 12px;">Play</button>
             <button id="pause" class="btn ghost" disabled style="padding:10px 12px;">Pause</button>
-            <span class="hint">Step jumps to next motion line (G0/G1 XY)</span>
+            <span class="hint">Step/Back jumps to next motion line (G0/G1 XY)</span>
           </div>
 
           <div id="ncBox" class="ncBox"></div>
