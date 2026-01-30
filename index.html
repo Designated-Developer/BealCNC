@@ -4,7 +4,6 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>NorrisCAM</title>
-
   <style>
     :root{
       --bg:#0b1220;
@@ -18,13 +17,7 @@
       --warn:#fbbf24;
       --bad:#fb7185;
       --ok:#34d399;
-
-      --radius:16px;
-      --radius-sm:12px;
-      --btn-h:40px;
-      --shadow: 0 18px 55px rgba(0,0,0,.35);
     }
-
     *{box-sizing:border-box}
     body{
       margin:0;
@@ -47,6 +40,7 @@
       border-bottom:1px solid var(--line);
       background: linear-gradient(180deg, rgba(15,26,51,.9), rgba(15,26,51,.55));
       backdrop-filter: blur(10px);
+      gap: 14px;
     }
 
     .brand{display:flex;align-items:center;gap:12px;min-width:260px}
@@ -68,13 +62,15 @@
       background:rgba(255,255,255,.04);
       min-width:420px;
       justify-content:space-between;
+      flex: 1;
+      max-width: 860px;
     }
-    .statusLeft{display:flex;align-items:center;gap:10px}
+    .statusLeft{display:flex;align-items:center;gap:10px;min-width:0}
     .dot{width:10px;height:10px;border-radius:50%}
     .dot.ok{background:var(--ok)}
     .dot.warn{background:var(--warn)}
     .dot.bad{background:var(--bad)}
-    .statusMain{display:flex;flex-direction:column}
+    .statusMain{display:flex;flex-direction:column;min-width:0}
     .statusMain .title{font-weight:800;font-size:13px}
     .statusMain .sub{font-size:12px;color:var(--muted2);max-width:760px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
@@ -87,6 +83,7 @@
       cursor:pointer;
       font-weight:900;
       font-size:13px;
+      white-space:nowrap;
     }
     .tabBtn.active{
       border-color:rgba(125,211,252,.4);
@@ -107,7 +104,7 @@
       border-radius:18px;
       background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
       border:1px solid rgba(255,255,255,.10);
-      box-shadow: var(--shadow);
+      box-shadow: 0 18px 55px rgba(0,0,0,.35);
       display:block;
     }
 
@@ -150,252 +147,177 @@
       margin:0 2px;
     }
 
-    /* ---------------- RIGHT PANE (CLEANED) ---------------- */
-
+    /* =============================
+       RIGHT SIDE — DECLUTTERED
+       ============================= */
     .right{
-      width:520px;min-width:420px;max-width:720px;
+      width: 560px;
+      min-width: 520px;
+      max-width: 760px;
       display:flex;flex-direction:column;min-height:0;
-      background:linear-gradient(180deg, rgba(15,26,51,.72), rgba(10,18,34,.72));
-      overflow:hidden;
+      background:linear-gradient(180deg, rgba(15,26,51,.7), rgba(10,18,34,.7));
     }
 
     .pane{display:none;flex-direction:column;min-height:0;height:100%}
     .pane.active{display:flex}
 
     .controls{
-      padding:14px;
+      padding:12px;
       border-bottom:1px solid var(--line);
       display:flex;
       flex-direction:column;
-      gap:12px;
+      gap:10px;
     }
 
-    .sectionTitle{
-      font-size:12px;
-      color:var(--muted2);
-      font-weight:900;
-      letter-spacing:.5px;
-      text-transform:uppercase;
-      margin:2px 0 2px;
+    /* Default rows: wrap safely but with less chaos */
+    .row{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
     }
 
-    /* Button system */
     .btn{
-      height:var(--btn-h);
-      padding:0 14px;
-      border-radius:14px;
+      height:38px;
+      padding:0 12px;
+      border-radius:12px;
       border:1px solid rgba(255,255,255,.12);
       background:rgba(255,255,255,.06);
       color:var(--text);
       font-weight:900;
       cursor:pointer;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      gap:8px;
+      font-size:13px;
       white-space:nowrap;
     }
     .btn:hover{background:rgba(255,255,255,.09)}
     .btn:disabled{opacity:.45;cursor:not-allowed}
 
-    .btn.primary{
-      border-color: rgba(125,211,252,.40);
-      background: rgba(125,211,252,.16);
-    }
-    .btn.primary:hover{background: rgba(125,211,252,.22)}
-
-    .btn.ghost{
-      background: transparent;
-      border-color: rgba(255,255,255,.10);
-    }
-    .btn.ghost:hover{background: rgba(255,255,255,.06)}
-
-    .btn.danger{
-      border-color: rgba(251,113,133,.38);
-      background: rgba(251,113,133,.12);
-    }
-    .btn.danger:hover{background: rgba(251,113,133,.18)}
-
-    .btnGroup{
-      display:flex;
-      gap:10px;
-      align-items:center;
-      flex-wrap:wrap;
-      width:100%;
-    }
-
     .file{
-      height:var(--btn-h);
-      padding:9px 12px;
-      border-radius:14px;
+      height:38px;
+      padding:8px 10px;
+      border-radius:12px;
       border:1px solid rgba(255,255,255,.12);
       background:rgba(255,255,255,.04);
       color:var(--muted);
       font-weight:800;
-      flex: 1 1 240px;
-      min-width: 240px;
-    }
-
-    /* Summary pills row */
-    .summaryRow{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      align-items:center;
-      width:100%;
-      padding:10px 10px;
-      border-radius:16px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.03);
-    }
-    .sumPill{
-      height:32px;
-      padding:0 10px;
-      border-radius:999px;
-      border:1px solid rgba(255,255,255,.12);
-      background: rgba(0,0,0,.18);
-      display:flex;
-      align-items:center;
-      gap:8px;
-      font-size:12px;
-      color: var(--muted);
-      white-space:nowrap;
-    }
-    .sumPill b{
-      color: rgba(255,255,255,.92);
-      font-weight:900;
-    }
-    .sumPill .k{
-      color: rgba(255,255,255,.45);
-      font-weight:900;
-      letter-spacing:.2px;
-    }
-    .sumPill.ok{border-color: rgba(52,211,153,.28)}
-    .sumPill.warn{border-color: rgba(251,191,36,.28)}
-    .sumPill.bad{border-color: rgba(251,113,133,.28)}
-
-    /* Field grid */
-    .grid2{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:10px;
-    }
-    @media (max-width: 980px){
-      .grid2{grid-template-columns: 1fr;}
-      .right{min-width:360px;width:440px}
+      font-size:13px;
+      flex: 1;
+      min-width: 220px;
     }
 
     .field{
       display:flex;
       align-items:center;
       gap:10px;
-      padding:10px 12px;
-      border-radius:14px;
+      padding:9px 10px;
+      border-radius:12px;
       border:1px solid rgba(255,255,255,.10);
       background:rgba(255,255,255,.04);
-      min-width:0;
+      flex:1;
+      min-width:0; /* KEY: stops the right panel from “forcing” wrap clutter */
     }
-
     .field label{
       font-size:12px;
       color:var(--muted);
-      min-width:110px;
-      font-weight:800;
+      min-width:96px;
+      white-space:nowrap;
     }
-
     .field input, .field select{
       flex:1;
-      height:32px;
-      background:rgba(0,0,0,.18);
+      height:30px;
+      background:rgba(0,0,0,.15);
       border:1px solid rgba(255,255,255,.10);
-      border-radius:12px;
+      border-radius:10px;
       color:var(--text);
       padding:0 10px;
       outline:none;
       font-weight:900;
+      font-size:13px;
       min-width:0;
     }
     .field input[type="number"]{text-align:right}
 
-    /* NC toolbar */
+    /* Desktop: clean grid alignment so it looks like your “75% zoom” layout */
+    @media (min-width: 1100px){
+      .controls .row{
+        display:grid;
+        grid-template-columns: 1fr 1fr;
+        align-items:center;
+        gap:10px;
+      }
+      .controls .row:first-child{
+        grid-template-columns: 1fr auto auto;
+      }
+      .controls .row:first-child .file{
+        width:100%;
+        min-width:0;
+      }
+    }
+
+    /* Build Summary row (pills) */
+    .summaryRow{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      padding-top: 2px;
+    }
+    .summaryPill{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      height:34px;
+      padding:0 10px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.05);
+      color:var(--muted);
+      font-size:12px;
+      font-weight:800;
+      white-space:nowrap;
+    }
+    .summaryPill .k{ color: rgba(255,255,255,.45); font-weight:900; }
+    .summaryPill .v{ color: rgba(255,255,255,.92); font-weight:900; }
+
+    .summaryPill.ok{
+      border-color: rgba(52,211,153,.28);
+      background: rgba(52,211,153,.08);
+    }
+    .summaryPill.warn{
+      border-color: rgba(251,191,36,.32);
+      background: rgba(251,191,36,.08);
+    }
+
     .ncToolbar{
-      position:sticky;
-      top:0;
-      z-index:5;
       display:flex;
       gap:10px;
       flex-wrap:wrap;
       align-items:center;
       justify-content:space-between;
-      padding:10px 14px;
+      padding:10px 12px;
       border-bottom:1px solid var(--line);
-      background: linear-gradient(180deg, rgba(15,26,51,.92), rgba(15,26,51,.72));
-      backdrop-filter: blur(10px);
     }
-
-    .ncToolbar .leftBtns,.ncToolbar .rightBtns{
-      display:flex;
-      gap:10px;
-      align-items:center;
-      flex-wrap:wrap
-    }
-
-    .hint{
-      font-size:12px;
-      color:var(--muted2);
-      padding:8px 10px;
-      border-radius:12px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.03);
-    }
+    .ncToolbar .leftBtns,.ncToolbar .rightBtns{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .hint{font-size:12px;color:var(--muted2)}
 
     .ncBox{
-      flex:1;
-      min-height:0;
-      overflow:auto;
-      padding:12px 14px;
+      flex:1;min-height:0;overflow:auto;
+      padding:10px 12px;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-      font-size:12px;
-      line-height:1.55;
+      font-size:12px;line-height:1.45;
       scroll-behavior:smooth;
     }
-
-    .ncLine{
-      display:flex;
-      gap:10px;
-      padding:3px 8px;
-      border-radius:10px;
-      border:1px solid transparent;
-    }
-
-    .ncLine:hover{
-      background: rgba(255,255,255,.04);
-      border-color: rgba(255,255,255,.06);
-    }
-
-    .ncLine .ln{
-      width:54px;
-      color:rgba(255,255,255,.35);
-      text-align:right;
-      user-select:none;
-      font-weight:900;
-    }
-    .ncLine .code{
-      white-space:pre;
-      color: rgba(255,255,255,.86);
-    }
-
+    .ncLine{display:flex;gap:10px;padding:2px 6px;border-radius:8px}
+    .ncLine .ln{width:52px;color:rgba(255,255,255,.35);text-align:right;user-select:none}
+    .ncLine .code{white-space:pre}
     .ncLine.hi{
       background:rgba(125,211,252,.12);
       border:1px solid rgba(125,211,252,.22);
     }
 
     .footerNote{
-      padding:10px 14px;
-      border-top:1px solid var(--line);
-      color:var(--muted2);
-      font-size:12px;
-      background: rgba(0,0,0,.10);
+      padding:10px 14px;border-top:1px solid var(--line);
+      color:var(--muted2);font-size:12px;
     }
   </style>
 </head>
@@ -467,26 +389,22 @@
     <section class="right">
       <div id="paneMain" class="pane active">
         <div class="controls">
-          <div class="sectionTitle">Toolpath</div>
-
-          <div class="btnGroup">
+          <div class="row">
             <input id="file" class="file" type="file" accept=".dxf" />
-            <button id="buildToolpath" class="btn primary" type="button" disabled>Build Toolpath</button>
+            <button id="buildToolpath" class="btn" type="button" disabled>Build Toolpath</button>
             <button id="exportDat" class="btn" type="button" disabled>Export .DAT</button>
           </div>
 
-          <!-- ✅ Build Summary Row (NEW) -->
+          <!-- Build Summary pills (NEW) -->
           <div class="summaryRow" aria-label="Build summary">
-            <div id="sumSegments" class="sumPill"><span class="k">Segments</span> <b>—</b></div>
-            <div id="sumPasses" class="sumPill"><span class="k">Passes</span> <b>—</b></div>
-            <div id="sumDistance" class="sumPill"><span class="k">Cut Dist</span> <b>—</b></div>
-            <div id="sumTime" class="sumPill"><span class="k">Est Time</span> <b>—</b></div>
-            <div id="sumBounds" class="sumPill"><span class="k">Bounds</span> <b>—</b></div>
+            <div id="sumSegments" class="summaryPill"><span class="k">Segments</span><span class="v">—</span></div>
+            <div id="sumPasses" class="summaryPill"><span class="k">Passes</span><span class="v">—</span></div>
+            <div id="sumCutDist" class="summaryPill"><span class="k">Cut</span><span class="v">—</span></div>
+            <div id="sumEstTime" class="summaryPill"><span class="k">Est</span><span class="v">—</span></div>
+            <div id="sumBounds" class="summaryPill"><span class="k">Bounds</span><span class="v">—</span></div>
           </div>
 
-          <div class="sectionTitle">Machine Settings</div>
-
-          <div class="grid2">
+          <div class="row">
             <div class="field">
               <label>Spindle RPM</label>
               <input id="spindleRPM" type="number" value="12000" min="0" step="100" />
@@ -495,16 +413,20 @@
               <label>Safe Z</label>
               <input id="safeZ" type="number" value="0.5" step="0.01" />
             </div>
+          </div>
 
+          <div class="row">
             <div class="field">
-              <label>Cut Z</label>
+              <label>Cut Z (depth)</label>
               <input id="cutZ" type="number" value="0.0625" step="0.001" />
             </div>
             <div class="field">
               <label>Stepdown</label>
               <input id="stepDown" type="number" value="0.0625" step="0.001" />
             </div>
+          </div>
 
+          <div class="row">
             <div class="field">
               <label>Feed XY</label>
               <input id="feedXY" type="number" value="30" step="1" />
@@ -513,7 +435,9 @@
               <label>Feed Z</label>
               <input id="feedZ" type="number" value="20" step="1" />
             </div>
+          </div>
 
+          <div class="row">
             <div class="field">
               <label>Origin</label>
               <select id="origin">
@@ -533,10 +457,10 @@
 
         <div class="ncToolbar">
           <div class="leftBtns">
-            <button id="backBtn" class="btn ghost" type="button" disabled>Back (B)</button>
-            <button id="stepBtn" class="btn primary" type="button" disabled>Step (S)</button>
+            <button id="backBtn" class="btn" type="button" disabled>Back (B)</button>
+            <button id="stepBtn" class="btn" type="button" disabled>Step (S)</button>
             <button id="playBtn" class="btn" type="button" disabled>Play (Space)</button>
-            <button id="pauseBtn" class="btn danger" type="button" disabled>Pause</button>
+            <button id="pauseBtn" class="btn" type="button" disabled>Pause</button>
           </div>
           <div class="rightBtns">
             <div class="hint">Reveal from line 1 • Cursor pinned at 0.33</div>
@@ -552,9 +476,7 @@
 
       <div id="paneOptions" class="pane">
         <div class="controls">
-          <div class="sectionTitle">Chaining Options</div>
-
-          <div class="grid2">
+          <div class="row">
             <div class="field">
               <label>Trace precision</label>
               <input id="outPrec" type="number" value="0.01" step="0.001" />
@@ -563,9 +485,11 @@
               <label>Snap grid</label>
               <input id="snapGrid" type="number" value="0.02" step="0.001" />
             </div>
+          </div>
 
+          <div class="row">
             <div class="field">
-              <label>Angle tol</label>
+              <label>Angle tol (deg)</label>
               <input id="angleTolDeg" type="number" value="14" step="1" />
             </div>
             <div class="field">
@@ -587,44 +511,46 @@
   </main>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
-<script src="./app.js"></script>
-
-<!-- ✅ Build Summary updater (NO changes needed in app.js) -->
 <script>
-  function fmtTime(mins){
-    if (!isFinite(mins) || mins <= 0) return "—";
-    if (mins < 1) return "< 1 min";
-    const h = Math.floor(mins / 60);
-    const m = Math.round(mins % 60);
-    if (h <= 0) return `${Math.round(mins)} min`;
-    return `${h}h ${m}m`;
-  }
+  // Build Summary pill updater (used by app.js)
+  window.updateBuildSummary = function updateBuildSummary(payload){
+    const segEl = document.getElementById("sumSegments");
+    const pasEl = document.getElementById("sumPasses");
+    const cutEl = document.getElementById("sumCutDist");
+    const estEl = document.getElementById("sumEstTime");
+    const bndEl = document.getElementById("sumBounds");
 
-  function setPill(id, text, tone){
-    const el = document.getElementById(id);
-    if (!el) return;
-    const b = el.querySelector("b");
-    if (b) b.textContent = text;
-    el.classList.remove("ok","warn","bad");
-    if (tone) el.classList.add(tone);
-  }
+    const set = (el, value) => {
+      if (!el) return;
+      const v = el.querySelector(".v");
+      if (v) v.textContent = value;
+    };
 
-  // Called by app.js via window.updateBuildSummary(...)
-  window.updateBuildSummary = function(summary){
-    // summary = { segments, passes, cutDistIn, estTimeMin, boundsText, tone }
-    setPill("sumSegments", summary?.segments ?? "—", summary?.tone);
-    setPill("sumPasses", summary?.passes ?? "—", summary?.tone);
-    setPill("sumDistance", summary?.cutDistIn ?? "—", summary?.tone);
-    setPill("sumTime", summary?.estTimeMin ? fmtTime(summary.estTimeMin) : "—", summary?.tone);
-    setPill("sumBounds", summary?.boundsText ?? "—", summary?.tone);
+    set(segEl, payload.segments ?? "—");
+    set(pasEl, payload.passes ?? "—");
+    set(cutEl, payload.cutDistIn ?? "—");
+
+    const mins = Number(payload.estTimeMin || 0);
+    const estText =
+      mins && isFinite(mins)
+        ? (mins < 1 ? "<1 min" : `${Math.round(mins)} min`)
+        : "—";
+    set(estEl, estText);
+
+    set(bndEl, payload.boundsText ?? "—");
+
+    // tone class
+    const tone = payload.tone; // "ok" | "warn" | null
+    const pills = [segEl, pasEl, cutEl, estEl, bndEl].filter(Boolean);
+    for (const p of pills) {
+      p.classList.remove("ok","warn");
+      if (tone === "ok") p.classList.add("ok");
+      if (tone === "warn") p.classList.add("warn");
+    }
   };
-
-  // Safe default on load
-  window.updateBuildSummary({
-    segments:"—", passes:"—", cutDistIn:"—", estTimeMin:0, boundsText:"—", tone:null
-  });
 </script>
 
+<script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
+<script src="./app.js"></script>
 </body>
 </html>
