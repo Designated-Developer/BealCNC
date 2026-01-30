@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>NorrisCAM</title>
+
   <style>
     :root{
       --bg:#0b1220;
@@ -17,7 +18,13 @@
       --warn:#fbbf24;
       --bad:#fb7185;
       --ok:#34d399;
+
+      --radius:16px;
+      --radius-sm:12px;
+      --btn-h:40px;
+      --shadow: 0 18px 55px rgba(0,0,0,.35);
     }
+
     *{box-sizing:border-box}
     body{
       margin:0;
@@ -100,7 +107,7 @@
       border-radius:18px;
       background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
       border:1px solid rgba(255,255,255,.10);
-      box-shadow: 0 18px 55px rgba(0,0,0,.35);
+      box-shadow: var(--shadow);
       display:block;
     }
 
@@ -143,79 +150,252 @@
       margin:0 2px;
     }
 
+    /* ---------------- RIGHT PANE (CLEANED) ---------------- */
+
     .right{
       width:520px;min-width:420px;max-width:720px;
       display:flex;flex-direction:column;min-height:0;
-      background:linear-gradient(180deg, rgba(15,26,51,.7), rgba(10,18,34,.7));
+      background:linear-gradient(180deg, rgba(15,26,51,.72), rgba(10,18,34,.72));
+      overflow:hidden;
     }
 
     .pane{display:none;flex-direction:column;min-height:0;height:100%}
     .pane.active{display:flex}
 
     .controls{
-      padding:14px;border-bottom:1px solid var(--line);
-      display:flex;flex-direction:column;gap:10px;
+      padding:14px;
+      border-bottom:1px solid var(--line);
+      display:flex;
+      flex-direction:column;
+      gap:12px;
     }
-    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+    .sectionTitle{
+      font-size:12px;
+      color:var(--muted2);
+      font-weight:900;
+      letter-spacing:.5px;
+      text-transform:uppercase;
+      margin:2px 0 2px;
+    }
+
+    /* Button system */
     .btn{
-      height:40px;padding:0 14px;border-radius:14px;
+      height:var(--btn-h);
+      padding:0 14px;
+      border-radius:14px;
       border:1px solid rgba(255,255,255,.12);
       background:rgba(255,255,255,.06);
-      color:var(--text);font-weight:900;cursor:pointer;
+      color:var(--text);
+      font-weight:900;
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      white-space:nowrap;
     }
     .btn:hover{background:rgba(255,255,255,.09)}
     .btn:disabled{opacity:.45;cursor:not-allowed}
 
+    .btn.primary{
+      border-color: rgba(125,211,252,.40);
+      background: rgba(125,211,252,.16);
+    }
+    .btn.primary:hover{background: rgba(125,211,252,.22)}
+
+    .btn.ghost{
+      background: transparent;
+      border-color: rgba(255,255,255,.10);
+    }
+    .btn.ghost:hover{background: rgba(255,255,255,.06)}
+
+    .btn.danger{
+      border-color: rgba(251,113,133,.38);
+      background: rgba(251,113,133,.12);
+    }
+    .btn.danger:hover{background: rgba(251,113,133,.18)}
+
+    .btnGroup{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+      width:100%;
+    }
+
     .file{
-      height:40px;padding:9px 12px;border-radius:14px;
+      height:var(--btn-h);
+      padding:9px 12px;
+      border-radius:14px;
       border:1px solid rgba(255,255,255,.12);
       background:rgba(255,255,255,.04);
-      color:var(--muted);font-weight:800;
+      color:var(--muted);
+      font-weight:800;
+      flex: 1 1 240px;
+      min-width: 240px;
+    }
+
+    /* Summary pills row */
+    .summaryRow{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      width:100%;
+      padding:10px 10px;
+      border-radius:16px;
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.03);
+    }
+    .sumPill{
+      height:32px;
+      padding:0 10px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.18);
+      display:flex;
+      align-items:center;
+      gap:8px;
+      font-size:12px;
+      color: var(--muted);
+      white-space:nowrap;
+    }
+    .sumPill b{
+      color: rgba(255,255,255,.92);
+      font-weight:900;
+    }
+    .sumPill .k{
+      color: rgba(255,255,255,.45);
+      font-weight:900;
+      letter-spacing:.2px;
+    }
+    .sumPill.ok{border-color: rgba(52,211,153,.28)}
+    .sumPill.warn{border-color: rgba(251,191,36,.28)}
+    .sumPill.bad{border-color: rgba(251,113,133,.28)}
+
+    /* Field grid */
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    @media (max-width: 980px){
+      .grid2{grid-template-columns: 1fr;}
+      .right{min-width:360px;width:440px}
     }
 
     .field{
-      display:flex;align-items:center;gap:10px;
-      padding:10px 12px;border-radius:14px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:10px 12px;
+      border-radius:14px;
       border:1px solid rgba(255,255,255,.10);
       background:rgba(255,255,255,.04);
-      min-width: 240px;
-      flex:1;
+      min-width:0;
     }
-    .field label{font-size:12px;color:var(--muted);min-width:110px}
+
+    .field label{
+      font-size:12px;
+      color:var(--muted);
+      min-width:110px;
+      font-weight:800;
+    }
+
     .field input, .field select{
-      flex:1;height:30px;background:rgba(0,0,0,.15);
+      flex:1;
+      height:32px;
+      background:rgba(0,0,0,.18);
       border:1px solid rgba(255,255,255,.10);
-      border-radius:10px;color:var(--text);
-      padding:0 10px;outline:none;font-weight:900;
+      border-radius:12px;
+      color:var(--text);
+      padding:0 10px;
+      outline:none;
+      font-weight:900;
+      min-width:0;
     }
     .field input[type="number"]{text-align:right}
 
+    /* NC toolbar */
     .ncToolbar{
-      display:flex;gap:10px;flex-wrap:wrap;
-      align-items:center;justify-content:space-between;
-      padding:10px 14px;border-bottom:1px solid var(--line);
+      position:sticky;
+      top:0;
+      z-index:5;
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between;
+      padding:10px 14px;
+      border-bottom:1px solid var(--line);
+      background: linear-gradient(180deg, rgba(15,26,51,.92), rgba(15,26,51,.72));
+      backdrop-filter: blur(10px);
     }
-    .ncToolbar .leftBtns,.ncToolbar .rightBtns{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-    .hint{font-size:12px;color:var(--muted2)}
+
+    .ncToolbar .leftBtns,.ncToolbar .rightBtns{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap
+    }
+
+    .hint{
+      font-size:12px;
+      color:var(--muted2);
+      padding:8px 10px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.03);
+    }
 
     .ncBox{
-      flex:1;min-height:0;overflow:auto;
+      flex:1;
+      min-height:0;
+      overflow:auto;
       padding:12px 14px;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-      font-size:12px;line-height:1.45;
+      font-size:12px;
+      line-height:1.55;
       scroll-behavior:smooth;
     }
-    .ncLine{display:flex;gap:10px;padding:2px 6px;border-radius:8px}
-    .ncLine .ln{width:52px;color:rgba(255,255,255,.35);text-align:right;user-select:none}
-    .ncLine .code{white-space:pre}
+
+    .ncLine{
+      display:flex;
+      gap:10px;
+      padding:3px 8px;
+      border-radius:10px;
+      border:1px solid transparent;
+    }
+
+    .ncLine:hover{
+      background: rgba(255,255,255,.04);
+      border-color: rgba(255,255,255,.06);
+    }
+
+    .ncLine .ln{
+      width:54px;
+      color:rgba(255,255,255,.35);
+      text-align:right;
+      user-select:none;
+      font-weight:900;
+    }
+    .ncLine .code{
+      white-space:pre;
+      color: rgba(255,255,255,.86);
+    }
+
     .ncLine.hi{
       background:rgba(125,211,252,.12);
       border:1px solid rgba(125,211,252,.22);
     }
 
     .footerNote{
-      padding:10px 14px;border-top:1px solid var(--line);
-      color:var(--muted2);font-size:12px;
+      padding:10px 14px;
+      border-top:1px solid var(--line);
+      color:var(--muted2);
+      font-size:12px;
+      background: rgba(0,0,0,.10);
     }
   </style>
 </head>
@@ -287,13 +467,26 @@
     <section class="right">
       <div id="paneMain" class="pane active">
         <div class="controls">
-          <div class="row">
+          <div class="sectionTitle">Toolpath</div>
+
+          <div class="btnGroup">
             <input id="file" class="file" type="file" accept=".dxf" />
-            <button id="buildToolpath" class="btn" type="button" disabled>Build Toolpath</button>
+            <button id="buildToolpath" class="btn primary" type="button" disabled>Build Toolpath</button>
             <button id="exportDat" class="btn" type="button" disabled>Export .DAT</button>
           </div>
 
-          <div class="row">
+          <!-- ✅ Build Summary Row (NEW) -->
+          <div class="summaryRow" aria-label="Build summary">
+            <div id="sumSegments" class="sumPill"><span class="k">Segments</span> <b>—</b></div>
+            <div id="sumPasses" class="sumPill"><span class="k">Passes</span> <b>—</b></div>
+            <div id="sumDistance" class="sumPill"><span class="k">Cut Dist</span> <b>—</b></div>
+            <div id="sumTime" class="sumPill"><span class="k">Est Time</span> <b>—</b></div>
+            <div id="sumBounds" class="sumPill"><span class="k">Bounds</span> <b>—</b></div>
+          </div>
+
+          <div class="sectionTitle">Machine Settings</div>
+
+          <div class="grid2">
             <div class="field">
               <label>Spindle RPM</label>
               <input id="spindleRPM" type="number" value="12000" min="0" step="100" />
@@ -302,20 +495,16 @@
               <label>Safe Z</label>
               <input id="safeZ" type="number" value="0.5" step="0.01" />
             </div>
-          </div>
 
-          <div class="row">
             <div class="field">
-              <label>Cut Z (depth)</label>
+              <label>Cut Z</label>
               <input id="cutZ" type="number" value="0.0625" step="0.001" />
             </div>
             <div class="field">
               <label>Stepdown</label>
               <input id="stepDown" type="number" value="0.0625" step="0.001" />
             </div>
-          </div>
 
-          <div class="row">
             <div class="field">
               <label>Feed XY</label>
               <input id="feedXY" type="number" value="30" step="1" />
@@ -324,9 +513,7 @@
               <label>Feed Z</label>
               <input id="feedZ" type="number" value="20" step="1" />
             </div>
-          </div>
 
-          <div class="row">
             <div class="field">
               <label>Origin</label>
               <select id="origin">
@@ -346,10 +533,10 @@
 
         <div class="ncToolbar">
           <div class="leftBtns">
-            <button id="backBtn" class="btn" type="button" disabled>Back (B)</button>
-            <button id="stepBtn" class="btn" type="button" disabled>Step (S)</button>
+            <button id="backBtn" class="btn ghost" type="button" disabled>Back (B)</button>
+            <button id="stepBtn" class="btn primary" type="button" disabled>Step (S)</button>
             <button id="playBtn" class="btn" type="button" disabled>Play (Space)</button>
-            <button id="pauseBtn" class="btn" type="button" disabled>Pause</button>
+            <button id="pauseBtn" class="btn danger" type="button" disabled>Pause</button>
           </div>
           <div class="rightBtns">
             <div class="hint">Reveal from line 1 • Cursor pinned at 0.33</div>
@@ -365,7 +552,9 @@
 
       <div id="paneOptions" class="pane">
         <div class="controls">
-          <div class="row">
+          <div class="sectionTitle">Chaining Options</div>
+
+          <div class="grid2">
             <div class="field">
               <label>Trace precision</label>
               <input id="outPrec" type="number" value="0.01" step="0.001" />
@@ -374,11 +563,9 @@
               <label>Snap grid</label>
               <input id="snapGrid" type="number" value="0.02" step="0.001" />
             </div>
-          </div>
 
-          <div class="row">
             <div class="field">
-              <label>Angle tol (deg)</label>
+              <label>Angle tol</label>
               <input id="angleTolDeg" type="number" value="14" step="1" />
             </div>
             <div class="field">
@@ -402,5 +589,42 @@
 
 <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.min.js"></script>
 <script src="./app.js"></script>
+
+<!-- ✅ Build Summary updater (NO changes needed in app.js) -->
+<script>
+  function fmtTime(mins){
+    if (!isFinite(mins) || mins <= 0) return "—";
+    if (mins < 1) return "< 1 min";
+    const h = Math.floor(mins / 60);
+    const m = Math.round(mins % 60);
+    if (h <= 0) return `${Math.round(mins)} min`;
+    return `${h}h ${m}m`;
+  }
+
+  function setPill(id, text, tone){
+    const el = document.getElementById(id);
+    if (!el) return;
+    const b = el.querySelector("b");
+    if (b) b.textContent = text;
+    el.classList.remove("ok","warn","bad");
+    if (tone) el.classList.add(tone);
+  }
+
+  // Called by app.js via window.updateBuildSummary(...)
+  window.updateBuildSummary = function(summary){
+    // summary = { segments, passes, cutDistIn, estTimeMin, boundsText, tone }
+    setPill("sumSegments", summary?.segments ?? "—", summary?.tone);
+    setPill("sumPasses", summary?.passes ?? "—", summary?.tone);
+    setPill("sumDistance", summary?.cutDistIn ?? "—", summary?.tone);
+    setPill("sumTime", summary?.estTimeMin ? fmtTime(summary.estTimeMin) : "—", summary?.tone);
+    setPill("sumBounds", summary?.boundsText ?? "—", summary?.tone);
+  };
+
+  // Safe default on load
+  window.updateBuildSummary({
+    segments:"—", passes:"—", cutDistIn:"—", estTimeMin:0, boundsText:"—", tone:null
+  });
+</script>
+
 </body>
 </html>
