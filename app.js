@@ -1,4 +1,4 @@
-// NorrisCAM — UPDATED (Rotate + Correct HOME dot)
+// NorrisCAM — UPDATED (Rotate + Correct HOME dot + Build Summary pills)
 // Machine: General International i-Carver 40-915 XM1 CNC Router
 // Travel: X = 15" (back↔front), Y = 20" (right↔left)
 // Workflow: center of stock (WCS 0,0 at stock center)
@@ -40,6 +40,54 @@ const view = { scale: 50, ox: 0, oy: 0 };
 let viewLocked = false;
 let lockedView = { scale: view.scale, ox: view.ox, oy: view.oy };
 let userTouchedView = false;
+
+// ---------------- Build Summary (NEW) ----------------
+function resetBuildSummary() {
+  if (window.updateBuildSummary) {
+    window.updateBuildSummary({
+      segments: "—",
+      passes: "—",
+      cutDistIn: "—",
+      estTimeMin: 0,
+      boundsText: "—",
+      tone: null
+    });
+  }
+}
+function updateBuildSummaryFromBuild(opts, toolSegments, over) {
+  // Passes
+  const depth = Math.abs(opts.depth);
+  const step = Math.max(0.001, opts.stepDown);
+  const passes = Math.max(1, Math.ceil(depth / step));
+
+  // Cut distance (inches)
+  let cutDist = 0;
+  for (const s of toolSegments) {
+    if (s.mode !== "CUT") continue;
+    cutDist += Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y);
+  }
+
+  // Very rough time estimate (minutes) based on XY feed
+  // (Keeps it simple & stable; you can add rapids/plunges later if you want)
+  const feed = Math.max(1e-6, Number(opts.feedXY) || 1);
+  const estMin = cutDist / feed;
+
+  const boundsText =
+    `X ${over.minX.toFixed(2)}→${over.maxX.toFixed(2)} • Y ${over.minY.toFixed(2)}→${over.maxY.toFixed(2)}`;
+
+  const tone = over.isOver ? "warn" : "ok";
+
+  if (window.updateBuildSummary) {
+    window.updateBuildSummary({
+      segments: String(toolSegments.length),
+      passes: String(passes),
+      cutDistIn: `${cutDist.toFixed(1)} in`,
+      estTimeMin: estMin,
+      boundsText,
+      tone
+    });
+  }
+}
 
 // ---------------- UI ----------------
 function setStatus(kind, title, detail) {
@@ -337,7 +385,7 @@ function drawMachineOverlay() {
 
   ctx.setLineDash([]);
 
-  // ✅ HOME dot should be TOP-RIGHT (your request)
+  // ✅ HOME dot should be TOP-RIGHT
   const home = w2s({ x: maxX, y: maxY });
 
   ctx.fillStyle = "rgba(255,255,255,0.90)";
@@ -383,7 +431,7 @@ function drawToolReveal() {
   if (!toolSegs.length) return;
   const n = Math.min(revealSegCount, toolSegs.length);
 
-  // dashed rapids (only after step lands)
+  // dashed rapids
   ctx.save();
   ctx.strokeStyle = "rgba(122,167,255,0.35)";
   ctx.lineWidth = 2;
@@ -396,7 +444,7 @@ function drawToolReveal() {
   }
   ctx.restore();
 
-  // cuts (red) + out-of-bounds (orange)
+  // cuts + out-of-bounds
   ctx.save();
   ctx.lineWidth = 2;
   for (let i = 0; i < n; i++) {
@@ -765,7 +813,7 @@ function applyTransform(keepViewStable = true) {
   readTransformFromUI();
   geomSegs = transformSegs(baseGeomSegs, currentScale, currentRotDeg);
 
-  // Keep view stable (no jumping)
+  // Keep view stable
   if (keepViewStable) {
     if (!viewLocked) lockView();
   } else if (!userTouchedView) {
@@ -781,6 +829,8 @@ function applyTransform(keepViewStable = true) {
   shownNCMax = -1;
   enableAfterBuild(false);
 
+  resetBuildSummary(); // NEW
+
   renderNC();
   draw();
   setStatus("ok", "Transform applied", `Scale=${Math.round(currentScale * 100)}% • Rotate=${Math.round(currentRotDeg)}° • Build toolpath again.`);
@@ -795,7 +845,7 @@ function computeFitScaleForRotation(baseSegs, rotDeg) {
   const maxW = MACHINE_X_TRAVEL;
   const maxH = MACHINE_Y_TRAVEL;
 
-  const factor = Math.min(maxW / w, maxH / h) * 0.98; // margin
+  const factor = Math.min(maxW / w, maxH / h) * 0.98;
   return Math.max(0.001, factor);
 }
 
@@ -851,6 +901,7 @@ $("file").addEventListener("change", async (e) => {
   if (!file) return;
 
   setPlaying(false);
+  resetBuildSummary(); // NEW
   setStatus("warn", "Loading…", file.name);
 
   try {
@@ -914,6 +965,7 @@ $("buildToolpath").addEventListener("click", () => {
     if (!paths.length) {
       setStatus("bad", "Build produced 0 paths", "Try increasing tolerances in Options.");
       alert("Build produced 0 paths.\nTry Options:\n- Trace precision 0.02\n- Snap grid 0.02–0.05\n- Chain tol 0.03");
+      resetBuildSummary(); // NEW
       return;
     }
 
@@ -924,6 +976,9 @@ $("buildToolpath").addEventListener("click", () => {
 
     // Overtravel marking + warning
     const over = checkOvertravelAndMark(toolSegs);
+
+    // ✅ Update build summary pills (NEW)
+    updateBuildSummaryFromBuild(opts, toolSegs, over);
 
     // reveal behavior
     revealSegCount = 0;
@@ -950,6 +1005,7 @@ $("buildToolpath").addEventListener("click", () => {
     console.error(err);
     setStatus("bad", "Build failed", err?.message || String(err));
     alert("Build failed.\nOpen console (F12) for details.");
+    resetBuildSummary(); // NEW
   }
 });
 
@@ -983,5 +1039,6 @@ function init() {
   resizeCanvasNoJump();
   renderNC();
   draw();
+  resetBuildSummary(); // NEW
 }
 init();
