@@ -129,25 +129,10 @@
       background:rgba(255,255,255,.06);
       display:flex;align-items:center;gap:8px;
       font-size:12px;color:var(--muted);
-      white-space:nowrap;
     }
-    .hud .pill strong{color:rgba(255,255,255,.92)}
-    .hud .pill.ok{
-      border-color: rgba(52,211,153,.28);
-      background: rgba(52,211,153,.10);
-    }
-    .hud .pill.warn{
-      border-color: rgba(251,191,36,.32);
-      background: rgba(251,191,36,.10);
-    }
-    .hud .pill.bad{
-      border-color: rgba(251,113,133,.35);
-      background: rgba(251,113,133,.10);
-    }
-
     .hud .pill .unit{color:rgba(255,255,255,.40);font-weight:800}
     .hud input[type="number"]{
-      width:78px;background:transparent;border:none;
+      width:82px;background:transparent;border:none;
       color:var(--text);font-weight:900;outline:none;text-align:right;
     }
     .hud .smallBtn{
@@ -378,6 +363,27 @@
             Footprint
           </label>
 
+          <!-- ✅ NEW: Stock overlay toggle -->
+          <label title="Toggle stock size overlay (centered on WCS)">
+            <input id="showStock" type="checkbox" checked />
+            Stock
+          </label>
+
+          <div class="divider"></div>
+
+          <!-- ✅ NEW: Stock W/H controls (inches) -->
+          <div class="pill" title="Stock width (inches). Centered on WCS (0,0).">
+            Stock W
+            <input id="stockW" type="number" value="12" min="0.1" step="0.1" />
+            <span class="unit">in</span>
+          </div>
+
+          <div class="pill" title="Stock height (inches). Centered on WCS (0,0).">
+            Stock H
+            <input id="stockH" type="number" value="12" min="0.1" step="0.1" />
+            <span class="unit">in</span>
+          </div>
+
           <div class="divider"></div>
 
           <div class="pill" title="Scale the imported DXF inside NorrisCAM">
@@ -391,42 +397,6 @@
             <input id="rotDeg" type="number" value="0" min="-360" max="360" step="1" />
             <span class="unit">°</span>
           </div>
-
-          <div class="divider"></div>
-
-          <div class="pill" title="Target part width (inches) for Scale → Target">
-            Target W
-            <input id="targetW" type="number" value="10" min="0" step="0.01" />
-            <span class="unit">in</span>
-          </div>
-
-          <div class="pill" title="Target part height (inches) for Scale → Target">
-            Target H
-            <input id="targetH" type="number" value="10" min="0" step="0.01" />
-            <span class="unit">in</span>
-          </div>
-
-          <button id="scaleToTarget" class="smallBtn" type="button" title="Set scale to hit Target W/H (uses current rotation)">Scale → Target</button>
-
-          <div class="divider"></div>
-
-          <div class="pill" title="Stock/material width (inches)">
-            Stock W
-            <input id="stockW" type="number" value="12" min="0" step="0.01" />
-            <span class="unit">in</span>
-          </div>
-
-          <div class="pill" title="Stock/material height (inches)">
-            Stock H
-            <input id="stockH" type="number" value="12" min="0" step="0.01" />
-            <span class="unit">in</span>
-          </div>
-
-          <div id="fitPill" class="pill" title="Live part size + fit status against stock">
-            Part <strong id="partSizeTxt">—</strong> • <strong id="fitTxt">—</strong>
-          </div>
-
-          <div class="divider"></div>
 
           <button id="applyTransform" class="smallBtn" type="button" title="Apply Scale + Rotate (keeps view stable)">Apply</button>
           <button id="fitToMachine" class="smallBtn" type="button" title="Set scale so rotated geometry fits machine travel">Fit</button>
@@ -444,7 +414,7 @@
             <button id="exportDat" class="btn" type="button" disabled>Export .DAT</button>
           </div>
 
-          <!-- Build Summary pills -->
+          <!-- Build Summary pills (NEW) -->
           <div class="summaryRow" aria-label="Build summary">
             <div id="sumSegments" class="summaryPill"><span class="k">Segments</span><span class="v">—</span></div>
             <div id="sumPasses" class="summaryPill"><span class="k">Passes</span><span class="v">—</span></div>
@@ -519,7 +489,7 @@
         <div id="ncBox" class="ncBox"></div>
 
         <div class="footerNote">
-          Footprint: X travel = 15" (back↔front), Y travel = 20" (right↔left). HOME dot = top-right (screen). Display rotated 90° CCW.
+          Footprint: X travel = 15" (back↔front), Y travel = 20" (right↔left). HOME dot = top-right.
         </div>
       </div>
 
@@ -588,7 +558,6 @@
 
     set(bndEl, payload.boundsText ?? "—");
 
-    // tone class
     const tone = payload.tone; // "ok" | "warn" | null
     const pills = [segEl, pasEl, cutEl, estEl, bndEl].filter(Boolean);
     for (const p of pills) {
