@@ -169,7 +169,6 @@
       gap:10px;
     }
 
-    /* Default rows: wrap safely but with less chaos */
     .row{
       display:flex;
       gap:10px;
@@ -214,7 +213,7 @@
       border:1px solid rgba(255,255,255,.10);
       background:rgba(255,255,255,.04);
       flex:1;
-      min-width:0; /* KEY: stops the right panel from “forcing” wrap clutter */
+      min-width:0;
     }
     .field label{
       font-size:12px;
@@ -237,7 +236,6 @@
     }
     .field input[type="number"]{text-align:right}
 
-    /* Desktop: clean grid alignment so it looks like your “75% zoom” layout */
     @media (min-width: 1100px){
       .controls .row{
         display:grid;
@@ -365,6 +363,11 @@
             Footprint
           </label>
 
+          <label title="Toggle material/stock overlay">
+            <input id="showStock" type="checkbox" checked />
+            Stock
+          </label>
+
           <div class="divider"></div>
 
           <div class="pill" title="Scale the imported DXF inside NorrisCAM">
@@ -382,6 +385,44 @@
           <button id="applyTransform" class="smallBtn" type="button" title="Apply Scale + Rotate (keeps view stable)">Apply</button>
           <button id="fitToMachine" class="smallBtn" type="button" title="Set scale so rotated geometry fits machine travel">Fit</button>
           <button id="resetTransform" class="smallBtn" type="button" title="Reset Scale=100% and Rotate=0°">Reset</button>
+
+          <div class="divider"></div>
+
+          <div class="pill" title="Material/stock size in X (inches), centered at WCS (0,0)">
+            Stock X
+            <input id="stockX" type="number" value="12" min="0.1" step="0.1" />
+            <span class="unit">in</span>
+          </div>
+
+          <div class="pill" title="Material/stock size in Y (inches), centered at WCS (0,0)">
+            Stock Y
+            <input id="stockY" type="number" value="12" min="0.1" step="0.1" />
+            <span class="unit">in</span>
+          </div>
+
+          <div class="pill" title="Keep the part away from edges for clamps/safety">
+            Margin
+            <input id="stockMargin" type="number" value="0.25" min="0" step="0.05" />
+            <span class="unit">in</span>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="pill" title="Target width for the PART after rotation (inches)">
+            Target W
+            <input id="targetW" type="number" value="4" min="0" step="0.01" />
+            <span class="unit">in</span>
+          </div>
+
+          <div class="pill" title="Target height for the PART after rotation (inches)">
+            Target H
+            <input id="targetH" type="number" value="4" min="0" step="0.01" />
+            <span class="unit">in</span>
+          </div>
+
+          <button id="scaleToW" class="smallBtn" type="button" title="Scale so part width equals Target W">To W</button>
+          <button id="scaleToH" class="smallBtn" type="button" title="Scale so part height equals Target H">To H</button>
+          <button id="scaleToFit" class="smallBtn" type="button" title="Scale to fit within Target W/H (uses whichever are provided)">To Fit</button>
         </div>
       </div>
     </section>
@@ -395,13 +436,15 @@
             <button id="exportDat" class="btn" type="button" disabled>Export .DAT</button>
           </div>
 
-          <!-- Build Summary pills (NEW) -->
+          <!-- Build Summary pills -->
           <div class="summaryRow" aria-label="Build summary">
             <div id="sumSegments" class="summaryPill"><span class="k">Segments</span><span class="v">—</span></div>
             <div id="sumPasses" class="summaryPill"><span class="k">Passes</span><span class="v">—</span></div>
             <div id="sumCutDist" class="summaryPill"><span class="k">Cut</span><span class="v">—</span></div>
             <div id="sumEstTime" class="summaryPill"><span class="k">Est</span><span class="v">—</span></div>
             <div id="sumBounds" class="summaryPill"><span class="k">Bounds</span><span class="v">—</span></div>
+            <div id="sumPart" class="summaryPill"><span class="k">Part</span><span class="v">—</span></div>
+            <div id="sumFit" class="summaryPill"><span class="k">Fit</span><span class="v">—</span></div>
           </div>
 
           <div class="row">
@@ -514,11 +557,13 @@
 <script>
   // Build Summary pill updater (used by app.js)
   window.updateBuildSummary = function updateBuildSummary(payload){
-    const segEl = document.getElementById("sumSegments");
-    const pasEl = document.getElementById("sumPasses");
-    const cutEl = document.getElementById("sumCutDist");
-    const estEl = document.getElementById("sumEstTime");
-    const bndEl = document.getElementById("sumBounds");
+    const segEl  = document.getElementById("sumSegments");
+    const pasEl  = document.getElementById("sumPasses");
+    const cutEl  = document.getElementById("sumCutDist");
+    const estEl  = document.getElementById("sumEstTime");
+    const bndEl  = document.getElementById("sumBounds");
+    const partEl = document.getElementById("sumPart");
+    const fitEl  = document.getElementById("sumFit");
 
     const set = (el, value) => {
       if (!el) return;
@@ -526,22 +571,27 @@
       if (v) v.textContent = value;
     };
 
-    set(segEl, payload.segments ?? "—");
-    set(pasEl, payload.passes ?? "—");
-    set(cutEl, payload.cutDistIn ?? "—");
+    // Only overwrite fields that are present in payload (so measurement-only refresh doesn't wipe build stats)
+    if ("segments" in payload) set(segEl, payload.segments ?? "—");
+    if ("passes" in payload) set(pasEl, payload.passes ?? "—");
+    if ("cutDistIn" in payload) set(cutEl, payload.cutDistIn ?? "—");
 
-    const mins = Number(payload.estTimeMin || 0);
-    const estText =
-      mins && isFinite(mins)
-        ? (mins < 1 ? "<1 min" : `${Math.round(mins)} min`)
-        : "—";
-    set(estEl, estText);
+    if ("estTimeMin" in payload) {
+      const mins = Number(payload.estTimeMin || 0);
+      const estText =
+        mins && isFinite(mins)
+          ? (mins < 1 ? "<1 min" : `${Math.round(mins)} min`)
+          : "—";
+      set(estEl, estText);
+    }
 
-    set(bndEl, payload.boundsText ?? "—");
+    if ("boundsText" in payload) set(bndEl, payload.boundsText ?? "—");
+    if ("partText" in payload) set(partEl, payload.partText ?? "—");
+    if ("fitText" in payload) set(fitEl, payload.fitText ?? "—");
 
     // tone class
     const tone = payload.tone; // "ok" | "warn" | null
-    const pills = [segEl, pasEl, cutEl, estEl, bndEl].filter(Boolean);
+    const pills = [segEl, pasEl, cutEl, estEl, bndEl, partEl, fitEl].filter(Boolean);
     for (const p of pills) {
       p.classList.remove("ok","warn");
       if (tone === "ok") p.classList.add("ok");
