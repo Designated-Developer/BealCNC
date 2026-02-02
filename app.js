@@ -1,4 +1,5 @@
-// NorrisCAM — UPDATED (Rotate + Correct HOME dot + Build Summary pills + Stock overlay + Scale-to-Target)
+// app.js
+// NorrisCAM — UPDATED (Rotate + Correct HOME dot + Build Summary pills + Target scale + Screen rotated 90° CCW)
 // Machine: General International i-Carver 40-915 XM1 CNC Router
 // Travel: X = 15" (back↔front), Y = 20" (right↔left)
 // Workflow: center of stock (WCS 0,0 at stock center)
@@ -41,7 +42,7 @@ let viewLocked = false;
 let lockedView = { scale: view.scale, ox: view.ox, oy: view.oy };
 let userTouchedView = false;
 
-// ---------------- Build Summary (UPDATED) ----------------
+// ---------------- Build Summary ----------------
 function resetBuildSummary() {
   if (window.updateBuildSummary) {
     window.updateBuildSummary({
@@ -50,91 +51,28 @@ function resetBuildSummary() {
       cutDistIn: "—",
       estTimeMin: 0,
       boundsText: "—",
-      partText: "—",
-      fitText: "—",
       tone: null
     });
   }
 }
-
-function dimsFromBounds(b) {
-  return { w: (b.maxX - b.minX), h: (b.maxY - b.minY) };
-}
-
-// Stock helpers
-function readStock() {
-  const sx = Number($("stockX")?.value || 0);
-  const sy = Number($("stockY")?.value || 0);
-  const m = Number($("stockMargin")?.value || 0);
-  return {
-    stockX: Math.max(0, isFinite(sx) ? sx : 0),
-    stockY: Math.max(0, isFinite(sy) ? sy : 0),
-    margin: Math.max(0, isFinite(m) ? m : 0),
-  };
-}
-
-function stockFitFromBounds(geomB) {
-  const { stockX, stockY, margin } = readStock();
-  if (!(stockX > 0 && stockY > 0)) return { ok: null, text: "No stock set" };
-
-  const minX = -stockX / 2 + margin;
-  const maxX = +stockX / 2 - margin;
-  const minY = -stockY / 2 + margin;
-  const maxY = +stockY / 2 - margin;
-
-  const ok =
-    geomB.minX >= minX && geomB.maxX <= maxX &&
-    geomB.minY >= minY && geomB.maxY <= maxY;
-
-  return { ok, text: ok ? "Fits stock" : "Too big for stock" };
-}
-
-// Update pills WITHOUT nuking toolpath (safe for stock changes)
-function updateMeasurementPills() {
-  if (!geomSegs.length || !window.updateBuildSummary) return;
-
-  const gb = bounds(geomSegs);
-  const d = dimsFromBounds(gb);
-  const fit = stockFitFromBounds(gb);
-
-  // Keep whatever build-time data is already on screen, but refresh these:
-  window.updateBuildSummary({
-    boundsText: `X ${gb.minX.toFixed(2)}→${gb.maxX.toFixed(2)} • Y ${gb.minY.toFixed(2)}→${gb.maxY.toFixed(2)}`,
-    partText: `${Math.max(0, d.w).toFixed(2)}" × ${Math.max(0, d.h).toFixed(2)}"`,
-    fitText: fit.text,
-    tone: (fit.ok === false) ? "warn" : "ok"
-  });
-}
-
 function updateBuildSummaryFromBuild(opts, toolSegments, over) {
-  // Passes
   const depth = Math.abs(opts.depth);
   const step = Math.max(0.001, opts.stepDown);
   const passes = Math.max(1, Math.ceil(depth / step));
 
-  // Cut distance (inches)
   let cutDist = 0;
   for (const s of toolSegments) {
     if (s.mode !== "CUT") continue;
     cutDist += Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y);
   }
 
-  // Very rough time estimate (minutes) based on XY feed
   const feed = Math.max(1e-6, Number(opts.feedXY) || 1);
   const estMin = cutDist / feed;
-
-  // Geometry bounds + part size
-  const gb = bounds(geomSegs);
-  const d = dimsFromBounds(gb);
 
   const boundsText =
     `X ${over.minX.toFixed(2)}→${over.maxX.toFixed(2)} • Y ${over.minY.toFixed(2)}→${over.maxY.toFixed(2)}`;
 
-  // Stock fit
-  const fit = stockFitFromBounds(gb);
-
-  // Tone: warn if machine overtravel OR stock doesn't fit
-  const tone = (over.isOver || fit.ok === false) ? "warn" : "ok";
+  const tone = over.isOver ? "warn" : "ok";
 
   if (window.updateBuildSummary) {
     window.updateBuildSummary({
@@ -143,8 +81,6 @@ function updateBuildSummaryFromBuild(opts, toolSegments, over) {
       cutDistIn: `${cutDist.toFixed(1)} in`,
       estTimeMin: estMin,
       boundsText,
-      partText: `${Math.max(0, d.w).toFixed(2)}" × ${Math.max(0, d.h).toFixed(2)}"`,
-      fitText: fit.text,
       tone
     });
   }
@@ -213,7 +149,7 @@ function bounds(segs) {
   for (const s of segs) {
     minX = Math.min(minX, s.a.x, s.b.x);
     minY = Math.min(minY, s.a.y, s.b.y);
-    maxX = Math.max(maxX, s.a.x, s.b.y ? s.b.x : s.b.x); // (safe)
+    maxX = Math.max(maxX, s.a.x, s.b.x);
     maxY = Math.max(maxY, s.a.y, s.b.y);
   }
   if (!isFinite(minX)) return { minX: 0, minY: 0, maxX: 1, maxY: 1 };
@@ -373,15 +309,45 @@ function fitViewOnce(segs) {
   const pad = 36;
 
   view.scale = Math.min((w - pad * 2) / bw, (h - pad * 2) / bh);
+
   const cx = (b.minX + b.maxX) / 2;
   const cy = (b.minY + b.maxY) / 2;
-  view.ox = w / 2 - cx * view.scale;
-  view.oy = h / 2 + cy * view.scale;
+
+  // With rotated screen mapping, centering means: place world center at canvas center
+  // using forward mapping equations.
+  view.ox = (w / 2) + (cy * view.scale);
+  view.oy = (h / 2) + (cx * view.scale);
 
   lockView();
 }
 
-function w2s(p) { return { x: p.x * view.scale + view.ox, y: -p.y * view.scale + view.oy }; }
+/**
+ * SCREEN MAPPING (NEW)
+ * Rotate display 90° COUNTER-CLOCKWISE.
+ *
+ * Start from your original:
+ *   sx =  x*scale + ox
+ *   sy = -y*scale + oy
+ *
+ * Apply CCW 90° in world before drawing:
+ *   (x',y') = (-y, x)
+ *
+ * Then map (x',y'):
+ *   sx = x'*scale + ox = (-y)*scale + ox
+ *   sy = -y'*scale + oy = -(x)*scale + oy
+ */
+function w2s(p) {
+  return {
+    x: (-p.y) * view.scale + view.ox,
+    y: (-p.x) * view.scale + view.oy
+  };
+}
+// Inverse: screen -> world (needed for mouse zoom pinning)
+function s2w(sx, sy) {
+  const wy = -((sx - view.ox) / view.scale);
+  const wx = -((sy - view.oy) / view.scale);
+  return { x: wx, y: wy };
+}
 
 // Pan/zoom
 let dragging = false, lastX = 0, lastY = 0;
@@ -406,79 +372,18 @@ canvas.addEventListener("wheel", (e) => {
   const mx = e.clientX - r.left;
   const my = e.clientY - r.top;
 
-  const before = { x: (mx - view.ox) / view.scale, y: -(my - view.oy) / view.scale };
+  // Pin world point under cursor while zooming (NEW, correct for rotated mapping)
+  const before = s2w(mx, my);
+
   const zoom = Math.exp(-e.deltaY * 0.001);
   view.scale *= zoom;
-  const after = { x: (mx - view.ox) / view.scale, y: -(my - view.oy) / view.scale };
-  view.ox += (before.x - after.x) * view.scale;
-  view.oy -= (before.y - after.y) * view.scale;
+
+  // Solve translations so that (before) maps back to (mx,my)
+  view.ox = mx + (before.y * view.scale);
+  view.oy = my + (before.x * view.scale);
 
   draw();
 }, { passive: false });
-
-// ---------------- Stock overlay (NEW) ----------------
-function drawStockOverlay() {
-  const show = $("showStock");
-  if (!show || !show.checked) return;
-
-  const { stockX, stockY, margin } = readStock();
-  if (!(stockX > 0 && stockY > 0)) return;
-
-  const minX = -stockX / 2;
-  const maxX = +stockX / 2;
-  const minY = -stockY / 2;
-  const maxY = +stockY / 2;
-
-  const p1 = w2s({ x: minX, y: minY });
-  const p2 = w2s({ x: maxX, y: minY });
-  const p3 = w2s({ x: maxX, y: maxY });
-  const p4 = w2s({ x: minX, y: maxY });
-
-  ctx.save();
-
-  // Outer stock
-  ctx.strokeStyle = "rgba(52,211,153,0.26)";
-  ctx.lineWidth = 2;
-  ctx.setLineDash([10, 6]);
-  ctx.beginPath();
-  ctx.moveTo(p1.x, p1.y);
-  ctx.lineTo(p2.x, p2.y);
-  ctx.lineTo(p3.x, p3.y);
-  ctx.lineTo(p4.x, p4.y);
-  ctx.closePath();
-  ctx.stroke();
-
-  // Inner margin safe area
-  if (margin > 0) {
-    const iminX = minX + margin;
-    const imaxX = maxX - margin;
-    const iminY = minY + margin;
-    const imaxY = maxY - margin;
-    if (imaxX > iminX && imaxY > iminY) {
-      const q1 = w2s({ x: iminX, y: iminY });
-      const q2 = w2s({ x: imaxX, y: iminY });
-      const q3 = w2s({ x: imaxX, y: imaxY });
-      const q4 = w2s({ x: iminX, y: imaxY });
-      ctx.setLineDash([]);
-      ctx.strokeStyle = "rgba(52,211,153,0.18)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(q1.x, q1.y);
-      ctx.lineTo(q2.x, q2.y);
-      ctx.lineTo(q3.x, q3.y);
-      ctx.lineTo(q4.x, q4.y);
-      ctx.closePath();
-      ctx.stroke();
-    }
-  }
-
-  ctx.setLineDash([]);
-  ctx.font = "800 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-  ctx.fillStyle = "rgba(52,211,153,0.55)";
-  ctx.fillText(`STOCK ${stockX.toFixed(2)}" × ${stockY.toFixed(2)}"`, p1.x + 10, p1.y - 10);
-
-  ctx.restore();
-}
 
 // ---------------- Machine overlay ----------------
 function drawMachineOverlay() {
@@ -510,7 +415,7 @@ function drawMachineOverlay() {
 
   ctx.setLineDash([]);
 
-  // ✅ HOME dot should be TOP-RIGHT
+  // HOME dot should be TOP-RIGHT (world maxX,maxY)
   const home = w2s({ x: maxX, y: maxY });
 
   ctx.fillStyle = "rgba(255,255,255,0.90)";
@@ -586,7 +491,6 @@ function draw() {
   const r = canvas.getBoundingClientRect();
   ctx.clearRect(0, 0, r.width, r.height);
   drawGrid();
-  drawStockOverlay();     // ✅ NEW
   drawMachineOverlay();
   drawGeom();
   drawToolReveal();
@@ -817,7 +721,6 @@ function buildProgram(paths, opts) {
       if (!p.segs.length) continue;
       const start = p.segs[0].a;
 
-      // tool-down chaining: if already at start, stay down
       if (!samePt(curXY, start, opts.chainTol)) {
         retract();
         rapidTo(start.x, start.y);
@@ -939,14 +842,12 @@ function applyTransform(keepViewStable = true) {
   readTransformFromUI();
   geomSegs = transformSegs(baseGeomSegs, currentScale, currentRotDeg);
 
-  // Keep view stable
   if (keepViewStable) {
     if (!viewLocked) lockView();
   } else if (!userTouchedView) {
     fitViewOnce(geomSegs);
   }
 
-  // Clear toolpath because geometry changed
   toolSegs = [];
   ncLines = [];
   ncText = "";
@@ -956,7 +857,6 @@ function applyTransform(keepViewStable = true) {
   enableAfterBuild(false);
 
   resetBuildSummary();
-  updateMeasurementPills();
 
   renderNC();
   draw();
@@ -987,65 +887,44 @@ function fitToMachine() {
   applyTransform(true);
 }
 
+// NEW: scale to target W×H (inches) after rotation
+function computeScaleToTarget(baseSegs, rotDeg, targetW, targetH) {
+  const rotated = transformSegs(baseSegs, 1.0, rotDeg);
+  const b = bounds(rotated);
+  const w = (b.maxX - b.minX) || 1;
+  const h = (b.maxY - b.minY) || 1;
+
+  const fW = targetW / w;
+  const fH = targetH / h;
+  const factor = Math.min(fW, fH);
+  return Math.max(0.001, factor);
+}
+
+function scaleToTarget() {
+  if (!baseGeomSegs.length) { alert("Import a DXF first."); return; }
+
+  const rot = Number($("rotDeg").value || 0);
+  const targetW = Math.max(0.001, Number($("targetW").value || 0));
+  const targetH = Math.max(0.001, Number($("targetH").value || 0));
+
+  const f = computeScaleToTarget(baseGeomSegs, rot, targetW, targetH);
+  const pct = Math.max(1, Math.round(f * 100));
+
+  $("scalePct").value = String(pct);
+  applyTransform(true);
+
+  // Give a quick “fit reality check” in status
+  const rotatedScaled = transformSegs(baseGeomSegs, f, rot);
+  const b = bounds(rotatedScaled);
+  const w = (b.maxX - b.minX);
+  const h = (b.maxY - b.minY);
+  setStatus("ok", "Scaled to target", `Now ≈ ${w.toFixed(2)}" × ${h.toFixed(2)}" (inside ${targetW}" × ${targetH}"). Build toolpath again.`);
+}
+
 function resetTransform() {
   $("scalePct").value = "100";
   $("rotDeg").value = "0";
   applyTransform(true);
-}
-
-// ---------------- Scale to Target (NEW) ----------------
-function readTarget() {
-  const tw = Number($("targetW")?.value || 0);
-  const th = Number($("targetH")?.value || 0);
-  return {
-    targetW: Math.max(0, isFinite(tw) ? tw : 0),
-    targetH: Math.max(0, isFinite(th) ? th : 0),
-  };
-}
-
-function computeBoundsAtScale1(rotDeg) {
-  if (!baseGeomSegs.length) return null;
-  const rotated = transformSegs(baseGeomSegs, 1.0, rotDeg);
-  return bounds(rotated);
-}
-
-function scaleToTarget(mode) {
-  if (!baseGeomSegs.length) { alert("Import a DXF first."); return; }
-
-  const rot = Number($("rotDeg").value || 0);
-  const b = computeBoundsAtScale1(rot);
-  if (!b) return;
-
-  const w = Math.max(1e-9, (b.maxX - b.minX));
-  const h = Math.max(1e-9, (b.maxY - b.minY));
-
-  const { targetW, targetH } = readTarget();
-  if (!(targetW > 0 || targetH > 0)) {
-    alert("Enter a Target Width and/or Target Height (inches).");
-    return;
-  }
-
-  let scale = null;
-
-  if (mode === "w") {
-    if (!(targetW > 0)) { alert("Enter Target Width (in)."); return; }
-    scale = targetW / w;
-  } else if (mode === "h") {
-    if (!(targetH > 0)) { alert("Enter Target Height (in)."); return; }
-    scale = targetH / h;
-  } else { // "fit" => fit within both if both provided; otherwise use whichever exists
-    const sW = (targetW > 0) ? (targetW / w) : Infinity;
-    const sH = (targetH > 0) ? (targetH / h) : Infinity;
-    scale = Math.min(sW, sH);
-  }
-
-  // Convert to %
-  const pct = Math.max(1, Math.round(scale * 100));
-  $("scalePct").value = String(pct);
-  applyTransform(true);
-
-  const msg = `Target ${mode === "w" ? "width" : mode === "h" ? "height" : "fit"} applied • Part now ~ ${geomSegs.length ? "" : ""}`;
-  setStatus("ok", "Scaled to target", `Scale=${pct}% • Rotate=${Math.round(rot)}°`);
 }
 
 // ---------------- Events ----------------
@@ -1054,20 +933,11 @@ $("tabOptions").addEventListener("click", () => setTab("options"));
 
 $("showFootprint").addEventListener("change", () => draw());
 
-// NEW: stock inputs update overlay + fit check WITHOUT clearing toolpath
-["showStock", "stockX", "stockY", "stockMargin"].forEach(id => {
-  const el = $(id);
-  if (el) el.addEventListener("input", () => { draw(); updateMeasurementPills(); });
-});
-
 $("applyTransform").addEventListener("click", () => applyTransform(true));
 $("fitToMachine").addEventListener("click", () => fitToMachine());
 $("resetTransform").addEventListener("click", () => resetTransform());
 
-// NEW: scale-to-target buttons
-$("scaleToW")?.addEventListener("click", () => scaleToTarget("w"));
-$("scaleToH")?.addEventListener("click", () => scaleToTarget("h"));
-$("scaleToFit")?.addEventListener("click", () => scaleToTarget("fit"));
+$("scaleToTarget").addEventListener("click", () => scaleToTarget());
 
 $("stepBtn").addEventListener("click", () => step(+1));
 $("backBtn").addEventListener("click", () => step(-1));
@@ -1119,7 +989,7 @@ $("file").addEventListener("change", async (e) => {
   // Apply origin shift to BASE geometry
   baseGeomSegs = applyOriginShift(segs, opts.origin);
 
-  // Apply current transform (clears toolpath by design)
+  // Apply current transform
   applyTransform(true);
 
   enableAfterImport(true);
@@ -1130,7 +1000,6 @@ $("file").addEventListener("change", async (e) => {
 
   renderNC();
   draw();
-  updateMeasurementPills();
   setStatus("ok", "Loaded", `Geometry ready. Scale=${Math.round(currentScale * 100)}% • Rotate=${Math.round(currentRotDeg)}°`);
 });
 
@@ -1141,7 +1010,7 @@ $("buildToolpath").addEventListener("click", () => {
   try {
     setPlaying(false);
     setStatus("warn", "Building…", "Chaining + tool-down + DAT");
-    if (!viewLocked) lockView(); // freeze the view so build never jumps
+    if (!viewLocked) lockView();
 
     const opts = readOpts();
 
@@ -1160,7 +1029,6 @@ $("buildToolpath").addEventListener("click", () => {
       setStatus("bad", "Build produced 0 paths", "Try increasing tolerances in Options.");
       alert("Build produced 0 paths.\nTry Options:\n- Trace precision 0.02\n- Snap grid 0.02–0.05\n- Chain tol 0.03");
       resetBuildSummary();
-      updateMeasurementPills();
       return;
     }
 
@@ -1169,13 +1037,9 @@ $("buildToolpath").addEventListener("click", () => {
     ncText = prog.ncText;
     toolSegs = prog.toolSegs;
 
-    // Overtravel marking + warning
     const over = checkOvertravelAndMark(toolSegs);
-
-    // ✅ Update build summary pills
     updateBuildSummaryFromBuild(opts, toolSegs, over);
 
-    // reveal behavior
     revealSegCount = 0;
     currentNCLine = -1;
     shownNCMax = Math.min(ncLines.length - 1, 60);
@@ -1194,20 +1058,13 @@ $("buildToolpath").addEventListener("click", () => {
       setStatus("warn", "Built (Overtravel)", msg.replace(/\n/g, " • "));
       console.warn(msg);
     } else {
-      // Still warn via pills if stock doesn't fit
-      const fit = stockFitFromBounds(bounds(geomSegs));
-      if (fit.ok === false) {
-        setStatus("warn", "Built (Stock too small)", `${fit.text} • Adjust stock or scale.`);
-      } else {
-        setStatus("ok", "Built", `Segments: ${toolSegs.length} • Step with S`);
-      }
+      setStatus("ok", "Built", `Segments: ${toolSegs.length} • Step with S`);
     }
   } catch (err) {
     console.error(err);
     setStatus("bad", "Build failed", err?.message || String(err));
     alert("Build failed.\nOpen console (F12) for details.");
     resetBuildSummary();
-    updateMeasurementPills();
   }
 });
 
