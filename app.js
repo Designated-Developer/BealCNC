@@ -388,8 +388,8 @@ function drawMachineOverlay() {
 
   ctx.setLineDash([]);
 
-  // HOME dot should be TOP-RIGHT
-  const home = w2s({ x: maxX, y: maxY });
+  // ✅ HOME dot should be TOP-LEFT (was top-right)
+  const home = w2s({ x: minX, y: maxY });
 
   ctx.fillStyle = "rgba(255,255,255,0.90)";
   ctx.beginPath();
@@ -398,7 +398,7 @@ function drawMachineOverlay() {
 
   ctx.font = "800 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
   ctx.fillStyle = "rgba(255,255,255,0.70)";
-  ctx.fillText("HOME", home.x - 46, home.y - 10);
+  ctx.fillText("HOME", home.x + 10, home.y - 10);
 
   ctx.restore();
 }
@@ -916,7 +916,7 @@ $("tabOptions").addEventListener("click", () => setTab("options"));
 
 $("showFootprint").addEventListener("change", () => draw());
 
-// ✅ NEW: stock overlay events
+// ✅ stock overlay events
 $("showStock").addEventListener("change", () => draw());
 $("stockW").addEventListener("input", () => draw());
 $("stockH").addEventListener("input", () => draw());
