@@ -147,9 +147,6 @@
       margin:0 2px;
     }
 
-    /* =============================
-       RIGHT SIDE — DECLUTTERED
-       ============================= */
     .right{
       width: 560px;
       min-width: 520px;
@@ -252,7 +249,6 @@
       }
     }
 
-    /* Build Summary row (pills) */
     .summaryRow{
       display:flex;
       gap:10px;
@@ -363,7 +359,6 @@
             Footprint
           </label>
 
-          <!-- ✅ NEW: Stock overlay toggle -->
           <label title="Toggle stock size overlay (centered on WCS)">
             <input id="showStock" type="checkbox" checked />
             Stock
@@ -371,7 +366,6 @@
 
           <div class="divider"></div>
 
-          <!-- ✅ NEW: Stock W/H controls (inches) -->
           <div class="pill" title="Stock width (inches). Centered on WCS (0,0).">
             Stock W
             <input id="stockW" type="number" value="12" min="0.1" step="0.1" />
@@ -388,7 +382,7 @@
 
           <div class="pill" title="Scale the imported DXF inside NorrisCAM">
             Scale
-            <input id="scalePct" type="number" value="100" min="1" max="5000" step="1" />
+            <input id="scalePct" type="number" value="100" min="0.001" max="5000" step="0.001" />
             <span class="unit">%</span>
           </div>
 
@@ -414,7 +408,6 @@
             <button id="exportDat" class="btn" type="button" disabled>Export .DAT</button>
           </div>
 
-          <!-- Build Summary pills (NEW) -->
           <div class="summaryRow" aria-label="Build summary">
             <div id="sumSegments" class="summaryPill"><span class="k">Segments</span><span class="v">—</span></div>
             <div id="sumPasses" class="summaryPill"><span class="k">Passes</span><span class="v">—</span></div>
@@ -489,7 +482,7 @@
         <div id="ncBox" class="ncBox"></div>
 
         <div class="footerNote">
-          Footprint: X travel = 15" (back↔front), Y travel = 20" (right↔left). HOME dot = top-right.
+          Footprint: X travel = 15" (back↔front), Y travel = 20" (right↔left). HOME dot = top-left.
         </div>
       </div>
 
