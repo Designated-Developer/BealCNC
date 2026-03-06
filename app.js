@@ -150,6 +150,16 @@ function fmt(n, step) {
   return q.toFixed(dec).replace(/\.?0+$/, "");
 }
 
+function formatPercent(pct) {
+  if (!isFinite(pct)) return "—";
+  if (pct >= 100) return `${pct.toFixed(0)}%`;
+  if (pct >= 10) return `${pct.toFixed(1)}%`;
+  if (pct >= 1) return `${pct.toFixed(2)}%`;
+  if (pct >= 0.1) return `${pct.toFixed(3)}%`;
+  if (pct >= 0.01) return `${pct.toFixed(4)}%`;
+  return `${pct.toFixed(6)}%`;
+}
+
 function bounds(segs) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const s of segs) {
@@ -388,7 +398,7 @@ function drawMachineOverlay() {
 
   ctx.setLineDash([]);
 
-  // ✅ HOME dot should be TOP-LEFT (was top-right)
+  // HOME dot = TOP-LEFT
   const home = w2s({ x: minX, y: maxY });
 
   ctx.fillStyle = "rgba(255,255,255,0.90)";
@@ -847,7 +857,8 @@ function setTab(which) {
 
 // ---------------- Transform actions ----------------
 function readTransformFromUI() {
-  const pct = Math.max(1, Number($("scalePct").value || 100));
+  const rawPct = Number($("scalePct").value);
+  const pct = Math.max(0.001, isFinite(rawPct) ? rawPct : 100);
   const rot = Number($("rotDeg").value || 0);
   currentScale = pct / 100;
   currentRotDeg = rot;
@@ -877,7 +888,7 @@ function applyTransform(keepViewStable = true) {
 
   renderNC();
   draw();
-  setStatus("ok", "Transform applied", `Scale=${Math.round(currentScale * 100)}% • Rotate=${Math.round(currentRotDeg)}° • Build toolpath again.`);
+  setStatus("ok", "Transform applied", `Scale=${formatPercent(currentScale * 100)} • Rotate=${Math.round(currentRotDeg)}° • Build toolpath again.`);
 }
 
 function computeFitScaleForRotation(baseSegs, rotDeg) {
@@ -890,7 +901,7 @@ function computeFitScaleForRotation(baseSegs, rotDeg) {
   const maxH = MACHINE_Y_TRAVEL;
 
   const factor = Math.min(maxW / w, maxH / h) * 0.98;
-  return Math.max(0.001, factor);
+  return Math.max(0.00001, factor);
 }
 
 function fitToMachine() {
@@ -898,9 +909,9 @@ function fitToMachine() {
 
   const rot = Number($("rotDeg").value || 0);
   const fitScale = computeFitScaleForRotation(baseGeomSegs, rot);
-  const pct = Math.max(1, Math.round(fitScale * 100));
+  const pct = Math.max(0.001, fitScale * 100);
 
-  $("scalePct").value = String(pct);
+  $("scalePct").value = String(Number(pct.toFixed(6)));
   applyTransform(true);
 }
 
@@ -916,7 +927,7 @@ $("tabOptions").addEventListener("click", () => setTab("options"));
 
 $("showFootprint").addEventListener("change", () => draw());
 
-// ✅ stock overlay events
+// stock overlay events
 $("showStock").addEventListener("change", () => draw());
 $("stockW").addEventListener("input", () => draw());
 $("stockH").addEventListener("input", () => draw());
@@ -982,7 +993,7 @@ $("file").addEventListener("change", async (e) => {
 
   renderNC();
   draw();
-  setStatus("ok", "Loaded", `Geometry ready. Scale=${Math.round(currentScale * 100)}% • Rotate=${Math.round(currentRotDeg)}°`);
+  setStatus("ok", "Loaded", `Geometry ready. Scale=${formatPercent(currentScale * 100)} • Rotate=${Math.round(currentRotDeg)}°`);
 });
 
 // Build toolpath
